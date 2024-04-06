@@ -61,6 +61,70 @@ def createTeam(firstIndex, secondIndex, isRed,
 # Agents #
 ##########
 
+class HungryAgent(CaptureAgent):
+
+  def registerInitialState(self, gameState):
+    super().registerInitialState(self, gameState)
+    self.weights = util.Counter()
+
+  def featureExtractor(self, gameState):
+    
+    state = gameState.getAgentState(self.index)
+    position = state.getPosition()
+    features = util.Counter()
+    foodList = self.getFood(gameState).asList()
+
+      # Compute distance to the nearest food
+
+    if len(foodList) > 0:  # This should always be True,  but better safe than sorry
+          minDistance = min([self.getMazeDistance(position, food)
+                              for food in foodList])
+          features['distanceToFood'] = minDistance
+    
+    enemies = [gameState.getAgentState(i)
+                   for i in self.getOpponents(gameState)]
+    invaders = [a for a in enemies if a.isPacman and a.getPosition()
+                    != None]
+    
+    if len(invaders) > 0:
+            dists = [self.getMazeDistance(
+                position, a.getPosition()) for a in invaders]
+            features['invaderDistance'] = min(dists)
+    
+    else:
+       features['invaderDistance'] = None
+    return features
+
+  def reward(self, previousState, action, currentState):
+    #successor = gameState.generateSuccessor(self.index, action)
+    features = self.featureExtractor(previousState)
+    successorFeatures = self.featureExtractor(currentState)
+    reward = 0
+    reward += features['distanceToFood'] - successorFeatures['distanceToFood']
+
+    if features['invaderDistance'] != None and successorFeatures['invaderDistance'] != None:
+        reward += features['invaderDistance'] - successorFeatures['invaderDistance']
+      
+    return reward
+  
+  def getQValue(self, gameState, action):
+     qValue = sum([self.weights[feature] * value for feature, value in self.featureExtractor(gameState).items()])
+     return qValue
+
+  def chooseAction(self, gameState):
+    legalActions = gameState.getLegalActions(self.index)
+    bestQvalue = -4000
+    bestAction = None
+
+    for action in legalActions:
+        actionValue = self.getQValue(gameState, action)
+
+        if actionValue > bestQvalue:
+            bestQvalue = actionValue
+            bestAction = action
+    return bestAction
+
+
 class DummyAgent(CaptureAgent):
   """
   A Dummy agent to serve as an example of the necessary agent structure.
