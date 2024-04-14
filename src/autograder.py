@@ -81,8 +81,8 @@ def readCommand(argv):
 
 # confirm we should author solution files
 def confirmGenerate():
-    print('WARNING: this action will overwrite any solution files.')
-    print('Are you sure you want to proceed? (yes/no)')
+    print("WARNING: this action will overwrite any solution files.")
+    print("Are you sure you want to proceed? (yes/no)")
     while True:
         ans = sys.stdin.readline().strip()
         if ans == 'yes':
