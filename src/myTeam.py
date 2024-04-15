@@ -153,12 +153,12 @@ class FirstAgent(CaptureAgent):
     self.loadWeights()
     
     self.discount=0.8
-    self.learningRate=0.1
+    self.learningRate=0.01
     self.epsilon = 0.2
     
     self.livingReward = -0.1
     
-    self.useTSChance = 0
+    self.useTSChance = 0.5
     self.isTraining = training
     
     self.movesTaken = 0
@@ -195,7 +195,7 @@ class FirstAgent(CaptureAgent):
     self.particleFilter = ParticleFilter(gameState, legalPositions, numOfParticles)
     
   def getOrSetDebug(self) -> str:
-    if (self.red): self.debug = True
+    if (self.index == 0): self.debug = True
     return "FirstAgent"
   
   def loadWeights(self) -> None:
@@ -418,7 +418,7 @@ class FirstAgent(CaptureAgent):
     """
       Updates the weights, Also updates the thompson samples
     """
-    reward = self.getOverallReward(rewards, state, action)
+    reward = self.getOverallReward(rewards)
     
     maxFutureActionQ_sa = self.getMaxQ_SA(nextState)
     q_sa = self.getQValue(state, action)
@@ -426,9 +426,10 @@ class FirstAgent(CaptureAgent):
     featureDifference = util.Counter()
     
     for feature in rewards:
-      if rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa
+      if feature == 'redHering1' or feature == 'redHering2': featureDifference[feature] = reward
+      elif rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa
       else: featureDifference[feature] = (reward + (self.discount * maxFutureActionQ_sa)) - q_sa
-    
+        
     featureDict = self.getFeatures(state, action)
     for feature in featureDict.keys():
       self.weights[feature] += (self.learningRate * featureDifference[feature])
@@ -500,7 +501,7 @@ class FirstAgent(CaptureAgent):
     
     return reward
   
-  def getOverallReward(self, rewardDict: dict[str: float], state: GameState, action: str) -> float:
+  def getOverallReward(self, rewardDict: dict[str: float]) -> float:
     #For Optimistic Sampling
     
     overallReward = 0
@@ -530,6 +531,12 @@ class FirstAgent(CaptureAgent):
     """
     return self.getFeatures(gameState, action) * self.weights
 
+  def customHash1(self, x: tuple) -> float:
+    return x[0]/31 if self.red else (31 - x[0])/31
+  
+  def customHash2(self, x: tuple) -> float:
+    return x[1]/16 if self.red else (16 - x[1])/16
+
   def getFeatures(self, gameState: GameState, action: str) -> dict[str: float]:
     """
     Returns a counter of features for the state
@@ -538,7 +545,12 @@ class FirstAgent(CaptureAgent):
     successor = self.getSuccessor(gameState, action)
     oldFoodList = self.getFood(gameState).asList()
     foodList = self.getFood(successor).asList()
-    features['foodScore'] = -len(foodList)/self.initalFoodCount
+    features['collectedFood'] = 1 if len(foodList) > len(oldFoodList) else 0
+    features['lostFood'] = 1 if len(foodList) < len(oldFoodList) else 0
+    features['gotScore'] = 1 if successor.getScore() > gameState.getScore() else 0
+    features['winMove'] = 1 if successor.isOver() else 0
+    features['redHering1'] = self.customHash1(successor.getAgentPosition(self.index))
+    features['redHering2'] = self.customHash2(successor.getAgentPosition(self.index))
     
     oldPos = gameState.getAgentState(self.index).getPosition()
     myPos = successor.getAgentState(self.index).getPosition()
@@ -554,7 +566,9 @@ class FirstAgent(CaptureAgent):
       oldMinGhostDistance = min([self.getMazeDistance(oldPos , a.getPosition()) if oldPos != a.getPosition() else 100 for a in ghosts]) + 1
       newMinGhostDistance = min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
       features['closerToGhost'] = 0 if newMinGhostDistance >= oldMinGhostDistance else 1
-      # features['distanceToGhost'] = newMinGhostDistance
+      features['distanceToGhost'] = newMinGhostDistance
+      features['rightNextToGhost'] = 1 if newMinGhostDistance <= 1 else 0
+      features['walkedIntoGhost'] = 1 if newMinGhostDistance == 0 else 0
         
     if action == Directions.STOP: features['stop'] = 1
     else: features['stop'] = 0
@@ -564,24 +578,55 @@ class FirstAgent(CaptureAgent):
     
     return features
 
-  def foodScoreReward(self, state: GameState, action : str, featureValue: float) -> float:
-    return (featureValue + 1) * 5
+  def redHering1Reward(self, featuresAtState: dict[str: float]) -> float:
+    x = self.getOverallReward(featuresAtState)
+    if x > 1:
+      x = 1
+    if x < -1:
+      x = -1
+    return x/10000
+  def redHering2Reward(self, featuresAtState: dict[str: float]) -> float:
+    x = self.getOverallReward(featuresAtState)
+    if x > 1:
+      x = 1
+    if x < -1:
+      x = -1
+    return x/10000
+  def collectedFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
+    return 0.5 if featureValue > 0 else -0.001
+  def lostFoodReward(self, featureValue: float) -> float:
+    return -1 if featureValue > 0 else 0
+  def gotScoreReward(self, featureValue: float) -> float:
+    return 2 if featureValue > 0 else -0.002
+  def winMoveReward(self, featureValue: float) -> float:
+    if featureValue > 0:
+      print("I WON OMG")
+      return 1
+    else:
+      return 0
   def closerToFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
-    if featureValue == 1: return 0.25
+    if featureValue == 1: return 0.075
     else: return 0
   def distanceToFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
     #reward = [log_0.99 of (x) + 300 ] / 400
     return (math.log(featureValue, 0.99) + 300)/200 if featureValue > 1 else 1.5
   def closerToGhostReward(self, state: GameState, action : str, featureValue: float) -> float:
-    if featureValue == 1: return -0.2
+    if featureValue == 1: return -0.075
     else: return 0
   def distanceToGhostReward(self, state: GameState, action : str, featureValue: float) -> float:
-    return 404
+    return (-featureValue + 5)/10
+  def rightNextToGhostReward(self, featureValue: float) -> float:
+    #DUMBASS
+    return -1 if featureValue > 0 else 0
+  def walkedIntoGhostReward(self, featureValue: float) -> float:
+    #DUMBASS
+    return -1 if featureValue > 0 else 0
   def stopReward(self) -> float:
     #STOP WASITNG TIME STOPPING NO TIME FOR STOP
     return -0.5
   
 class SecondAgent(FirstAgent):
+  #PACMAN CHASER PROFESSIONAL
   def getOrSetDebug(self) -> str:
     if (self.red): self.debug = False
     return "SecondAgent"
@@ -589,49 +634,65 @@ class SecondAgent(FirstAgent):
   def getFeatures(self, gameState, action):
     features = util.Counter()
     successor = self.getSuccessor(gameState, action)
-
+    oldFoodList = self.getFood(gameState).asList()
+    foodList = self.getFood(successor).asList()
+    oldPos = gameState.getAgentState(self.index).getPosition()
+    myPos = successor.getAgentState(self.index).getPosition()
+    
     myState = successor.getAgentState(self.index)
     myPos = myState.getPosition()
-
-    # Computes whether we're on defense (1) or offense (0)
+    
     features['onDefense'] = 1
     if myState.isPacman:
         features['onDefense'] = 0
-
-    # Computes distance to invaders we can see
-    enemies = [successor.getAgentState(i)
-                for i in self.getOpponents(successor)]
-    invaders = [a for a in enemies if a.isPacman and a.getPosition()
-                != None]
-    features['numInvaders'] = len(invaders)
-    if len(invaders) > 0:
-        dists = [self.getMazeDistance(
-            myPos, a.getPosition()) for a in invaders]
-        features['invaderDistance'] = min(dists)
-
+    
+    if len(oldFoodList) > 0 and len(foodList) > 0:  # This should always be True,  but better safe than sorry
+      oldMinFoodDistance = min([self.getMazeDistance(oldPos, food) if oldPos != food else 100 for food in oldFoodList])
+      newMinFoodDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
+      features['closerToFood'] = 0 if newMinFoodDistance >= oldMinFoodDistance else 1
+    
+    features['gotScore'] = 1 if successor.getScore() > gameState.getScore() else 0
+    
+    enemies = [successor.getAgentState(opponent) for opponent in self.getOpponents(successor)]
+    ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
+    if len(ghosts) > 0:
+      oldMinGhostDistance = min([self.getMazeDistance(oldPos , a.getPosition()) if oldPos != a.getPosition() else 100 for a in ghosts]) + 1
+      newMinGhostDistance = min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
+      features['closerToGhost'] = 0 if newMinGhostDistance >= oldMinGhostDistance else 1
+      features['distanceToGhost'] = newMinGhostDistance
+      features['rightNextToGhost'] = 1 if newMinGhostDistance <= 1 else 0
+      features['walkedIntoGhost'] = 1 if newMinGhostDistance == 0 else 0
+        
     if action == Directions.STOP: features['stop'] = 1
     else: features['stop'] = 0
-    rev = Directions.REVERSE[gameState.getAgentState(
-        self.index).configuration.direction]
-    if action == rev: features['reverse'] = 1
-    else: features['reverse'] = 0
-        
+    
     #Use Particle Filter
     # self.particleFilter
 
     return features
   
-  def onDefenseReward(self, state: GameState, action : str, featureValue: float) -> float:
-    return 0
-  def numInvadersReward(self, state: GameState, action : str, featureValue: float) -> float:
-    return 0
-  def invaderDistanceReward(self, state: GameState, action : str, featureValue: float) -> float:
-    return 0
+  def onDefenseReward(self, featureValue: float) -> float:
+    return 0.01 if featureValue == 1 else -0.01
+  
+  def closerToFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
+    if featureValue == 1: return 0.0001
+    else: return 0
+    
+  def gotScoreReward(self, featureValue: float) -> float:
+    return 2 if featureValue > 0 else -0.002
+  
+  def closerToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    if featureValue == 1 and featuresAtState['onDefense'] == 1: return 0.25
+    else: return 0
+  def distanceToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    return (featureValue + 5)/5 if featuresAtState['onDefense'] == 1 else 0
+  def rightNextToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    return 1 if featureValue > 0 and featuresAtState['onDefense'] == 1 else 0
+  def walkedIntoGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    return 10 if featureValue > 0 and featuresAtState['onDefense'] == 1 else 0
   def stopReward(self) -> float:
-    return 404
-  def reverseReward(self) -> float:
-    return 404
-
+    #STOP WASITNG TIME STOPPING NO TIME FOR STOP
+    return -0.5
 
 class DummyAgent(CaptureAgent):
   """
