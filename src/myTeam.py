@@ -58,7 +58,7 @@ MOVES = ["North", "South", "East", "West", "Stop"]
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'FirstAgent', second = 'SecondAgent'):
+               first = 'FirstAgent', second = 'FirstAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -158,18 +158,17 @@ class FirstAgent(CaptureAgent):
     
     self.livingReward = -0.1
     
-    self.useTSChance = 0.5
+    self.useTSChance = 0
     self.isTraining = training
     
     self.movesTaken = 0
     self.initalFoodCount = len(self.getFood(gameState).asList())
+    self.spawnLocation = gameState.getAgentPosition(self.index)
     
     self.previousActionMemory = None
     
     self.debug = False
     self.getOrSetDebug()
-    
-    self.foodInPouch = 0
     
     # legalPositions = [(0, 0)]
     # numOfParticles = 1000
@@ -195,7 +194,7 @@ class FirstAgent(CaptureAgent):
     self.particleFilter = ParticleFilter(gameState, legalPositions, numOfParticles)
     
   def getOrSetDebug(self) -> str:
-    if (self.index == 0): self.debug = True
+    if (self.red): self.debug = True
     return "FirstAgent"
   
   def loadWeights(self) -> None:
@@ -316,6 +315,12 @@ class FirstAgent(CaptureAgent):
     if self.isTraining:
       #Update weights and TS
       if (self.previousActionMemory != None):
+        currentState = gameState
+          
+        if (self.debug and currentState.getAgentState(self.index).numReturned > 0):
+          print("Returned: %s" % currentState.getAgentState(self.index).numReturned)
+        
+        #Update weights and all that
         self.update(self.previousActionMemory[0], self.previousActionMemory[1], gameState, self.getReward(self.previousActionMemory[0], self.previousActionMemory[1], gameState))
       
       agentID = hash(gameState.getAgentPosition(self.index))
@@ -426,8 +431,8 @@ class FirstAgent(CaptureAgent):
     featureDifference = util.Counter()
     
     for feature in rewards:
-      if feature == 'redHering1' or feature == 'redHering2': featureDifference[feature] = reward
-      elif rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa
+      if feature == 'redHering1' or feature == 'redHering2': featureDifference[feature] = reward*0.001
+      elif rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + reward*0.1 + (self.discount * maxFutureActionQ_sa)) - q_sa
       else: featureDifference[feature] = (reward + (self.discount * maxFutureActionQ_sa)) - q_sa
         
     featureDict = self.getFeatures(state, action)
@@ -537,12 +542,19 @@ class FirstAgent(CaptureAgent):
   def customHash2(self, x: tuple) -> float:
     return x[1]/16 if self.red else (16 - x[1])/16
 
+  def checkIfReturning(self, oldPos: tuple, myPos: tuple) -> bool:
+    if self.red:
+      return oldPos[0] > myPos[0]
+    else:
+      return oldPos[0] < myPos[0]
+
   def getFeatures(self, gameState: GameState, action: str) -> dict[str: float]:
     """
     Returns a counter of features for the state
     """
     features = util.Counter()
     successor = self.getSuccessor(gameState, action)
+    pacmanState = successor.getAgentState(self.index)
     oldFoodList = self.getFood(gameState).asList()
     foodList = self.getFood(successor).asList()
     features['collectedFood'] = 1 if len(foodList) > len(oldFoodList) else 0
@@ -554,6 +566,15 @@ class FirstAgent(CaptureAgent):
     
     oldPos = gameState.getAgentState(self.index).getPosition()
     myPos = successor.getAgentState(self.index).getPosition()
+    
+    features['died'] = 1 if oldPos == self.spawnLocation else 0
+    if pacmanState.numCarrying > 0 and self.checkIfReturning(oldPos, myPos) and pacmanState.isPacman:
+      features['returningFoodToBase'] = 0.25 * pacmanState.numCarrying
+    elif pacmanState.numCarrying > 0 and not self.checkIfReturning(oldPos, myPos) and pacmanState.isPacman:
+      features['returningFoodToBase'] = -0.25 * pacmanState.numCarrying
+    else:
+      features['returningFoodToBase'] = 0
+    
     if len(oldFoodList) > 0 and len(foodList) > 0:  # This should always be True,  but better safe than sorry
       oldMinFoodDistance = min([self.getMazeDistance(oldPos, food) if oldPos != food else 100 for food in oldFoodList])
       newMinFoodDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
@@ -592,32 +613,56 @@ class FirstAgent(CaptureAgent):
     if x < -1:
       x = -1
     return x/10000
-  def collectedFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
-    return 0.5 if featureValue > 0 else -0.001
+  def collectedFoodReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    return 0.1 if featureValue > 0 else -0.001
   def lostFoodReward(self, featureValue: float) -> float:
-    return -1 if featureValue > 0 else 0
+    return -0.75 if featureValue > 0 else 0
   def gotScoreReward(self, featureValue: float) -> float:
-    return 2 if featureValue > 0 else -0.002
+    if featureValue > 0:
+      if (self.debug): print("returned to base with pellet")
+      return 1.5
+    else: 
+      return -0.0025
   def winMoveReward(self, featureValue: float) -> float:
     if featureValue > 0:
-      print("I WON OMG")
       return 1
     else:
       return 0
-  def closerToFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
-    if featureValue == 1: return 0.075
+  def diedReward (self, featureValue: float) -> float:
+    if featureValue > 0 and self.movesTaken > 1:
+      if (self.debug): print(" I JUST FUCKING DIED ")
+      return -2
+    else:
+      return 0
+  def returningFoodToBaseReward(self, featureValue: float) -> float:
+    if featureValue > 0:
+      print("returningFoodToBase")
+      return 0.25
+    elif featureValue < 0:
+      print("refusing to return to base ...")
+      return -0.25
+    else:
+      return 0
+  def closerToFoodReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    if featuresAtState['died'] == 1: return 0
+    elif featureValue == 1: return 0.01
     else: return 0
-  def distanceToFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
-    #reward = [log_0.99 of (x) + 300 ] / 400
-    return (math.log(featureValue, 0.99) + 300)/200 if featureValue > 1 else 1.5
-  def closerToGhostReward(self, state: GameState, action : str, featureValue: float) -> float:
-    if featureValue == 1: return -0.075
+  def closerToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    if featuresAtState['died'] == 1: return -0.05 * featureValue
+    elif featureValue == 1: return -0.025
     else: return 0
-  def distanceToGhostReward(self, state: GameState, action : str, featureValue: float) -> float:
-    return (-featureValue + 5)/10
-  def rightNextToGhostReward(self, featureValue: float) -> float:
+  def distanceToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    if featuresAtState['died'] == 1 and featureValue > 0: return (-featureValue + 5)/5
+    elif featureValue > 0: return (-featureValue + 5)/10
+    else: return 0 
+  def rightNextToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
     #DUMBASS
-    return -1 if featureValue > 0 else 0
+    if featuresAtState['died'] == 1: 
+      return -1
+    elif featureValue > 0:
+      return -0.5
+    else:
+      return 0
   def walkedIntoGhostReward(self, featureValue: float) -> float:
     #DUMBASS
     return -1 if featureValue > 0 else 0
