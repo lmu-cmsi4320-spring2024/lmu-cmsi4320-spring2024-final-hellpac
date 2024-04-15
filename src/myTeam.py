@@ -23,6 +23,7 @@ import game
 import json
 import inspect
 import os.path
+import math
 
 ##################
 # Game Constants #
@@ -144,7 +145,7 @@ class HungryAgent(CaptureAgent):
 
 
 class FirstAgent(CaptureAgent):
-  def registerInitialState(self, gameState: GameState, training: bool = TRAINING):
+  def registerInitialState(self, gameState: GameState, training: bool = TRAINING) -> None:
     self.start = gameState.getAgentPosition(self.index)
     CaptureAgent.registerInitialState(self, gameState)
     
@@ -152,11 +153,12 @@ class FirstAgent(CaptureAgent):
     self.loadWeights()
     
     self.discount=0.8
-    self.learningRate=0.2
+    self.learningRate=0.1
+    self.epsilon = 0.2
     
     self.livingReward = -0.1
     
-    self.useTSChance = 0.9
+    self.useTSChance = 0
     self.isTraining = training
     
     self.movesTaken = 0
@@ -164,8 +166,10 @@ class FirstAgent(CaptureAgent):
     
     self.previousActionMemory = None
     
-    self.debug = True
+    self.debug = False
     self.getOrSetDebug()
+    
+    self.foodInPouch = 0
     
     # legalPositions = [(0, 0)]
     # numOfParticles = 1000
@@ -191,11 +195,10 @@ class FirstAgent(CaptureAgent):
     self.particleFilter = ParticleFilter(gameState, legalPositions, numOfParticles)
     
   def getOrSetDebug(self) -> str:
-    if (not self.red):
-      self.debug = False
+    if (self.red): self.debug = True
     return "FirstAgent"
   
-  def loadWeights(self):
+  def loadWeights(self) -> None:
     agentStr = self.getOrSetDebug()
     if os.path.isfile(WEIGHT_PATH):
       with open(WEIGHT_PATH, "r") as jsonFile:
@@ -213,7 +216,7 @@ class FirstAgent(CaptureAgent):
       newTeamWeights.write(json.dumps(INITALTEAMWEIGHTS))
       newTeamWeights.close()
       
-  def updateWeights(self):
+  def updateWeights(self) -> None:
     agentStr = self.getOrSetDebug()
     with open(WEIGHT_PATH, "r") as jsonFile:
       teamWeights = json.load(jsonFile)
@@ -223,7 +226,7 @@ class FirstAgent(CaptureAgent):
     with open(WEIGHT_PATH, "w") as jsonFile:
       json.dump(teamWeights, jsonFile)
       
-  def loadGraveyard(self):
+  def loadGraveyard(self) -> None:
     agentStr = self.getOrSetDebug()
     
     #LOAD TS_GRAVEYARD
@@ -260,17 +263,18 @@ class FirstAgent(CaptureAgent):
       newTeamRegularGraveyards.write(json.dumps(INITALREGULARGRAVEYARD))
       newTeamRegularGraveyards.close()
       
-  def updateGraveyard(self):
+  def updateGraveyard(self) -> None:
     agentStr = self.getOrSetDebug()
     
-    #update ts graveyard
-    with open(TS_GRAVEYARD_PATH, "r") as jsonFile:
-      teamTSGraveyards = json.load(jsonFile)
-  
-    teamTSGraveyards[agentStr] = self.armsGraveyard
-  
-    with open(TS_GRAVEYARD_PATH, "w") as jsonFile:
-      json.dump(teamTSGraveyards, jsonFile)
+    if (self.useTSChance != 0):
+      #update ts graveyard
+      with open(TS_GRAVEYARD_PATH, "r") as jsonFile:
+        teamTSGraveyards = json.load(jsonFile)
+    
+      teamTSGraveyards[agentStr] = self.armsGraveyard
+    
+      with open(TS_GRAVEYARD_PATH, "w") as jsonFile:
+        json.dump(teamTSGraveyards, jsonFile)
       
     #update regular graveyard
     with open(REGULAR_GRAVEYARD_PATH, "r") as jsonFile:
@@ -295,7 +299,7 @@ class FirstAgent(CaptureAgent):
     print("Feature: %s not found. Returning 0" % x)
     return 0
   
-  def chooseAction(self, gameState: GameState):
+  def chooseAction(self, gameState: GameState) -> None:
     """
     Picks among the actions with the highest Q(s,a).
     """
@@ -320,16 +324,17 @@ class FirstAgent(CaptureAgent):
       else: foodID = hash(gameState.getBlueFood())
       currentArmBranch = hash((agentID, foodID))
       
-      if currentArmBranch not in self.armsGraveyard.keys():
-        legalActions = gameState.getLegalActions(self.index)
-        
-        self.armsGraveyard[currentArmBranch] = [(1, 1)] * len(MOVES) 
-        
-        for move in MOVES:
-          if move not in legalActions: self.armsGraveyard[currentArmBranch][self.getMoveIndex(move)] = (0, 0)
+      if (self.useTSChance != 0):
+        if currentArmBranch not in self.armsGraveyard.keys():
+          legalActions = gameState.getLegalActions(self.index)
+          
+          self.armsGraveyard[currentArmBranch] = [(1, 1)] * len(MOVES) 
+          
+          for move in MOVES:
+            if move not in legalActions: self.armsGraveyard[currentArmBranch][self.getMoveIndex(move)] = (0, 0)
       
       #Using a epsilon for usagecase of TS here it is self.useTSChance (I made this up hopefully it works)
-      if random.random() < self.useTSChance:
+      if random.random() < self.useTSChance and self.useTSChance != 0:
         chosenActionIndex = None
         highestDartScore = 0
         
@@ -343,6 +348,8 @@ class FirstAgent(CaptureAgent):
               chosenActionIndex = actionIndex
               
         action = MOVES[chosenActionIndex]
+      elif random.random() < self.epsilon:
+        action = self.getRandomAction(gameState)
       else:
         action = self.getBestAction(gameState)
     else:
@@ -354,7 +361,15 @@ class FirstAgent(CaptureAgent):
 
     return action
   
-  def getBestAction(self, state: GameState):
+  def getRandomAction(self, state: GameState) -> str:
+    legalActions = state.getLegalActions(self.index)
+    
+    if len(legalActions) == 0:
+      return ""  # Terminal state, no legal actions
+    
+    return random.choice(legalActions)
+  
+  def getBestAction(self, state: GameState) -> str:
     """
       Compute the best action to take in a state.
     """
@@ -362,7 +377,7 @@ class FirstAgent(CaptureAgent):
     legalActions = state.getLegalActions(self.index)
 
     if len(legalActions) == 0:
-      return None  # Terminal state, no legal actions
+      return ""  # Terminal state, no legal actions
 
     bestActions = []
     bestQValue = float('-inf')
@@ -379,18 +394,24 @@ class FirstAgent(CaptureAgent):
     
     return random.choice(bestActions)
   
-  def getMaxQ_SA(self, state: GameState):
+  def getMaxQ_SA(self, state: GameState) -> float:
     """
       Returns max_action Q(state,action)
       where the max is over legal actions.  Note that if
       there are no legal actions, which is the case at the
       terminal state, you should return a value of 0.0.
     """
+    agentID = hash(state.getAgentPosition(self.index))
+    foodID = None
+    if (self.red): foodID = hash(state.getRedFood())
+    else: foodID = hash(state.getBlueFood())
+    currentArmBranch = hash((agentID, foodID))
+    
     legalActions = state.getLegalActions(self.index)
     if not legalActions:
       return 0.0  # Terminal state, no legal actions
 
-    maxQValue = max(self.getQValue(state, action) for action in legalActions)
+    maxQValue = max(self.getQValue(state, action) +  self.optimisticConstant/(self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1) for action in legalActions)
     return maxQValue
   
   def update(self, state: GameState, action: str, nextState: GameState, rewards: dict[str: float]):
@@ -401,35 +422,43 @@ class FirstAgent(CaptureAgent):
     
     maxFutureActionQ_sa = self.getMaxQ_SA(nextState)
     q_sa = self.getQValue(state, action)
-    difference = (reward + (self.discount * maxFutureActionQ_sa)) - q_sa
+    
+    featureDifference = util.Counter()
+    
+    for feature in rewards:
+      if rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa
+      else: featureDifference[feature] = (reward + (self.discount * maxFutureActionQ_sa)) - q_sa
     
     featureDict = self.getFeatures(state, action)
     for feature in featureDict.keys():
-      self.weights[feature] += (self.learningRate * difference)
+      self.weights[feature] += (self.learningRate * featureDifference[feature])
     
-    #Thompson Sampling Update
     agentID = hash(state.getAgentPosition(self.index))
     foodID = None
     if (self.red): foodID = hash(state.getRedFood())
     else: foodID = hash(state.getBlueFood())
     currentArmBranch = hash((agentID, foodID))
     
-    moveIndex = self.getMoveIndex(action)
-    oldRatio = self.armsGraveyard[currentArmBranch][moveIndex] 
-    newRatio = (oldRatio[0] + reward, oldRatio[1]) if reward >= 0 else (oldRatio[0], oldRatio[1] + abs(reward) * 2)
-    self.armsGraveyard[currentArmBranch][moveIndex] = newRatio
+    if (self.useTSChance != 0):
+      #Thompson Sampling Update
+      moveIndex = self.getMoveIndex(action)
+      oldRatio = self.armsGraveyard[currentArmBranch][moveIndex] 
+      newRatio = (oldRatio[0] + reward, oldRatio[1]) if reward >= 0 else (oldRatio[0], oldRatio[1] + abs(reward) * 2)
+      self.armsGraveyard[currentArmBranch][moveIndex] = newRatio
     
     #For Optimistic Sampling
     self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] += 1
     
-    if self.debug:
-      print("For Agent %s, %s" % (self.index, self.getOrSetDebug()))
-      print("Last State Location : %s,  Last Action: %s" % (state.getAgentPosition(self.index), action))
-      print("Overall Reward From State, Action: %s" % reward)
-      print("Features: %s" % self.getFeatures(state, action))
-      print("Weights: %s" % self.weights)
-      print()
+    # if self.debug:
+      # print("For Agent %s, %s" % (self.index, self.getOrSetDebug()))
+      # print("Last State Location: %s,  Last Action: %s(%sth Repitition)" % (state.getAgentPosition(self.index), action, repetitionCount))
+      # print("Overall Reward From State, Action: %s" % reward)
+      # print("maxFutureActionQ_sa: %s" % maxFutureActionQ_sa)
+      # print("q_sa: %s" % q_sa)
+      # print("Features: %s" % self.getFeatures(state, action))
+      # print("Weights: %s" % self.weights)
       #print("Thompson Values: %s" % self.armsGraveyard)
+      # print()
     
   def getReward(self, state: GameState, action : str, nextState: GameState) -> dict[str: float]:
     """
@@ -439,9 +468,12 @@ class FirstAgent(CaptureAgent):
       print("WTF error why did u call getReward when ur not training. Returning 0")
       return 0
     
+    featuresAtState = self.getFeatures(state, action)
+    
     #For Reward Splitting
     reward = {}
     for feature in self.featuresList:
+      featureValue = featuresAtState[feature]
       #Please have feature reward functions reserved for all features in the following format. feature = hi, function = hiReward()
       
       #Ignore bottom code was desperate to make this somewhat modular I could have done this all with if statements but here we are
@@ -470,13 +502,6 @@ class FirstAgent(CaptureAgent):
   
   def getOverallReward(self, rewardDict: dict[str: float], state: GameState, action: str) -> float:
     #For Optimistic Sampling
-    agentID = hash(state.getAgentPosition(self.index))
-    foodID = None
-    if (self.red): foodID = hash(state.getRedFood())
-    else: foodID = hash(state.getBlueFood())
-    currentArmBranch = (agentID, foodID)
-    
-    repetitionCount = self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1
     
     overallReward = 0
     
@@ -484,8 +509,8 @@ class FirstAgent(CaptureAgent):
     for reward in rewardDict.keys():
       if rewardDict[reward] != 404:
         overallReward += rewardDict[reward]
-    
-    return overallReward + self.optimisticConstant/repetitionCount - self.livingReward
+      
+    return overallReward - self.livingReward
 
   def getSuccessor(self, gameState: GameState, action: str) -> GameState:
     """
@@ -513,7 +538,7 @@ class FirstAgent(CaptureAgent):
     successor = self.getSuccessor(gameState, action)
     oldFoodList = self.getFood(gameState).asList()
     foodList = self.getFood(successor).asList()
-    features['uneatenFoodPercent'] = len(foodList)/self.initalFoodCount
+    features['foodScore'] = -len(foodList)/self.initalFoodCount
     
     oldPos = gameState.getAgentState(self.index).getPosition()
     myPos = successor.getAgentState(self.index).getPosition()
@@ -521,7 +546,7 @@ class FirstAgent(CaptureAgent):
       oldMinFoodDistance = min([self.getMazeDistance(oldPos, food) if oldPos != food else 100 for food in oldFoodList])
       newMinFoodDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
       features['closerToFood'] = 0 if newMinFoodDistance >= oldMinFoodDistance else 1
-      features['distanceToFood'] = newMinFoodDistance
+      # features['distanceToFood'] = newMinFoodDistance
     
     enemies = [successor.getAgentState(opponent) for opponent in self.getOpponents(successor)]
     ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
@@ -529,30 +554,36 @@ class FirstAgent(CaptureAgent):
       oldMinGhostDistance = min([self.getMazeDistance(oldPos , a.getPosition()) if oldPos != a.getPosition() else 100 for a in ghosts]) + 1
       newMinGhostDistance = min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
       features['closerToGhost'] = 0 if newMinGhostDistance >= oldMinGhostDistance else 1
-      features['distanceToGhost'] = newMinGhostDistance
+      # features['distanceToGhost'] = newMinGhostDistance
         
-    if action == Directions.STOP:
-        features['stop'] = 1
+    if action == Directions.STOP: features['stop'] = 1
+    else: features['stop'] = 0
     
     #Use Particle Filter
     # self.particleFilter
     
     return features
 
-  def uneatenFoodPercentReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return 0
-  def closerToFoodReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return 0
-  def distanceToFoodReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return 0
-  def closerToGhostReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return 0
-  def distanceToGhostReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return 0
+  def foodScoreReward(self, state: GameState, action : str, featureValue: float) -> float:
+    return (featureValue + 1) * 5
+  def closerToFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
+    if featureValue == 1: return 0.25
+    else: return 0
+  def distanceToFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
+    #reward = [log_0.99 of (x) + 300 ] / 400
+    return (math.log(featureValue, 0.99) + 300)/200 if featureValue > 1 else 1.5
+  def closerToGhostReward(self, state: GameState, action : str, featureValue: float) -> float:
+    if featureValue == 1: return -0.2
+    else: return 0
+  def distanceToGhostReward(self, state: GameState, action : str, featureValue: float) -> float:
+    return 404
+  def stopReward(self) -> float:
+    #STOP WASITNG TIME STOPPING NO TIME FOR STOP
+    return -0.5
   
 class SecondAgent(FirstAgent):
   def getOrSetDebug(self) -> str:
-    self.debug = False
+    if (self.red): self.debug = False
     return "SecondAgent"
   
   def getFeatures(self, gameState, action):
@@ -578,27 +609,27 @@ class SecondAgent(FirstAgent):
             myPos, a.getPosition()) for a in invaders]
         features['invaderDistance'] = min(dists)
 
-    if action == Directions.STOP:
-        features['stop'] = 1
+    if action == Directions.STOP: features['stop'] = 1
+    else: features['stop'] = 0
     rev = Directions.REVERSE[gameState.getAgentState(
         self.index).configuration.direction]
-    if action == rev:
-        features['reverse'] = 1
+    if action == rev: features['reverse'] = 1
+    else: features['reverse'] = 0
         
     #Use Particle Filter
     # self.particleFilter
 
     return features
   
-  def onDefenseReward(self, state: GameState, action : str, nextState: GameState) -> float:
+  def onDefenseReward(self, state: GameState, action : str, featureValue: float) -> float:
     return 0
-  def numInvadersReward(self, state: GameState, action : str, nextState: GameState) -> float:
+  def numInvadersReward(self, state: GameState, action : str, featureValue: float) -> float:
     return 0
-  def invaderDistanceReward(self, state: GameState, action : str, nextState: GameState) -> float:
+  def invaderDistanceReward(self, state: GameState, action : str, featureValue: float) -> float:
     return 0
   def stopReward(self) -> float:
     return 404
-  def reverse(self) -> float:
+  def reverseReward(self) -> float:
     return 404
 
 
