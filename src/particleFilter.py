@@ -1,5 +1,13 @@
 import itertools
 import util
+import distanceCalculator
+import heapq
+from capture import GameState
+from game import Grid
+from game import Actions
+from game import Directions
+from dataclasses import dataclass, field
+from typing import Any
 
 class ParticleFilter():
     """
@@ -10,49 +18,44 @@ class ParticleFilter():
     Counter by treating its values as probabilities.
     """
 
-    def __init__(self, gameState, legalPositions, numParticles=300):
+    def __init__(self, gameState: GameState, isRed: bool, index: int, numParticles: int=300) -> None:
         self.numParticles = numParticles
         self.beliefs = util.Counter()
         self.initalGameState = gameState
+        self.targetIndex = index
+        
+        self.spawnLoc = gameState.getInitialAgentPosition(self.targetIndex)
+        
+        self.red = isRed
+        self.walls = gameState.getWalls()
+        
+        allLocations = Grid(32, 16, True).asList()
+        legalPositions = []
+        walls = gameState.getWalls()
+        for location in allLocations:
+            if walls[location[0]][location[1]] == False:
+                legalPositions.append(location)
+        enemyIndices = gameState.getBlueTeamIndices() if self.red else gameState.getRedTeamIndices()
+        
+        # self.possibleEnemyPositions = [gameState.getInitialAgentPosition(index) for index in enemyIndices]
+        
         self.legalPositions = legalPositions
         self.initializeUniformly()
         
+        self.distancer = distanceCalculator.Distancer(gameState.data.layout)
         
-    def getPositionDistribution(self, gameState):
+    def getPositionDistribution(self, enemyLocation: tuple) -> util.Counter:
         """
-        Returns a distribution over successor positions of the ghost from the
-        given gameState.
-
-        You must first place the ghost in the gameState, using setGhostPosition
-        below.
+        Returns a equally distributed distribution over successor positions of a given location.
         """
-        ghostPosition = gameState.getGhostPosition(self.index)
-        actionDist = self.ghostAgent.getDistribution(gameState)
+        newLocations = Actions.getLegalNeighbors(enemyLocation, self.walls)
         dist = util.Counter()
-        for action, prob in actionDist.items():
-            successorPosition = game.Actions.getSuccessor(ghostPosition, action)
-            dist[successorPosition] = prob
+        prob = 1/len(newLocations)
+        for location in newLocations:
+            dist[location] = prob
         return dist
 
-    def setGhostPosition(self, gameState, ghostPosition):
-        """
-        Sets the position of the ghost for this inference module to the
-        specified position in the supplied gameState.
-
-        Note that calling setGhostPosition does not change the position of the
-        ghost in the GameState object used for tracking the true progression of
-        the game.  The code in inference.py only ever receives a deep copy of
-        the GameState object which is responsible for maintaining game state,
-        not a reference to the original object.  Note also that the ghost
-        distance observations are stored at the time the GameState object is
-        created, so changing the position of the ghost will not affect the
-        functioning of observeState.
-        """
-        conf = game.Configuration(ghostPosition, game.Directions.STOP)
-        gameState.data.agentStates[self.index] = game.AgentState(conf, False)
-        return gameState
-
-    def initializeUniformly(self):
+    def initializeUniformly(self) -> None:
         """
         Initializes a list of particles. Use self.numParticles for the number of
         particles. Use self.legalPositions for the legal board positions where a
@@ -77,7 +80,15 @@ class ParticleFilter():
         
         return uniformedParticles 
     
-    def observe(self, observation, gameState):
+    def getObservationDistribution(self, noisyDistance: float, gameState: GameState, myPos: tuple) -> dict[int: float]:
+        dist = {}
+        for possibleEnemyLoc in self.legalPositions:
+            distanceToLoc = self.distancer.getDistance(possibleEnemyLoc, myPos)
+            dist[distanceToLoc] = gameState.getDistanceProb(distanceToLoc, noisyDistance)
+            
+        return dist
+    
+    def observe(self, noisyDistance: float, gameState: GameState, myPos: tuple[int]) -> dict[tuple[int]: float]:
         """
         Update beliefs based on the given distance observation. Make sure to
         handle the special case where all particles have weight 0 after
@@ -104,30 +115,28 @@ class ParticleFilter():
         You may also want to use util.manhattanDistance to calculate the
         distance between a particle and Pacman's position.
         """
-        noisyDistance = observation
-        emissionModel = busters.getObservationDistribution(noisyDistance)
-        pacmanPosition = gameState.getPacmanPosition()
-        legalPositions = [p for p in gameState.getWalls().asList(False) if p[1] > 1]
+        emissionModel = self.getObservationDistribution(noisyDistance, gameState, myPos)
         
         if self.beliefs.totalCount() == 0:
-            self.initializeUniformly(gameState)
+            self.initializeUniformly()
             
         for position in self.beliefs.keys():
-            # print("beliefDist[%s] = emissionsModel[%s] * beliefDist[%s]" % (position, util.manhattanDistance(pacmanPosition, position), position))
-            # print("beliefDist[%s] = %s * %s" % (position, emissionModel[util.manhattanDistance(pacmanPosition, position)], self.beliefs[position]))
-            self.beliefs[position] = emissionModel[util.manhattanDistance(pacmanPosition, position)] * self.beliefs[position]
-            # print(str(position) + ": " + str(self.beliefs[position]) + "\n")
-        
-        if noisyDistance is None:
-            for p in legalPositions:
-                self.beliefs[p] = 0.0
-            self.beliefs[self.getJailPosition()] = 1.0
-        
+            self.beliefs[position] = emissionModel[self.distancer.getDistance(position, myPos)] * self.beliefs[position]
         
         self.beliefs.normalize()
         return self.beliefs
+    
+    def killedAgent(self) -> None:
+        for loc in self.legalPositions:
+            self.beliefs[loc] = 0.0
+        self.beliefs[self.spawnLoc] = 1.0
+    
+    def foundAgent(self, foundLocation: tuple[int]) -> None:
+        for loc in self.legalPositions:
+            self.beliefs[loc] = 0.0
+        self.beliefs[foundLocation] = 1.0
 
-    def elapseTime(self, gameState):
+    def elapseTime(self) -> None:
         """
         Update beliefs for a time step elapsing.
 
@@ -141,11 +150,18 @@ class ParticleFilter():
         util.sample(Counter object) is a helper method to generate a sample from
         a belief distribution.
         """
-        legalPositions = [p for p in gameState.getWalls().asList(False) if p[1] > 1]
+        # newLocations = []
+        # for location in self.possibleEnemyPositions:
+        #     adjLocations = Actions.getLegalNeighbors(location, gameState.getWalls())
+        #     for adjLoc in adjLocations:
+        #         if adjLoc not in newLocations and adjLoc not in self.possibleEnemyPositions:
+        #             newLocations.append(adjLoc)
+        # for newLoc in newLocations:
+        #     self.possibleEnemyPositions.append(newLoc)
         
         bprime = util.Counter() #initialize bprime
-        for oldPos in legalPositions: #summing over all old positions
-            newPosDist = self.getPositionDistribution(self.setGhostPosition(gameState, oldPos)) #
+        for oldPos in self.legalPositions: #summing over all old positions
+            newPosDist = self.getPositionDistribution(oldPos) #
             for newPos, prob in newPosDist.items():
                 bprime[newPos] = self.beliefs[oldPos] * prob + bprime[newPos] 
 
@@ -159,6 +175,25 @@ class ParticleFilter():
         essentially converts a list of particles into a belief distribution (a
         Counter object)
         """
-        
 
         return self.beliefs
+    
+    def getTargetIndex(self) -> int:
+        return self.targetIndex
+    
+    def getApproximateLocations(self, count: int = 10) -> list[tuple]:
+        locationArray = [None] * len(self.beliefs)
+        for index, (location, prob) in enumerate(self.beliefs.items()):
+            locationArray[index] = HeapNode(prob, location)
+        
+        largestNodes = heapq.nlargest(count, locationArray)
+        topLocs = [None] * 10
+        for index, node in enumerate(largestNodes):
+            topLocs[index] = node.loc
+            
+        return topLocs
+            
+@dataclass(order=True)
+class HeapNode:
+    prob: int
+    loc: Any=field(compare=False)

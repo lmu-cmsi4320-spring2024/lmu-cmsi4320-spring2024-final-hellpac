@@ -13,11 +13,15 @@
 
 
 from captureAgents import CaptureAgent
-from particleFilter import ParticleFilter
 import random, time, util
+import distanceCalculator
+import heapq
 from capture import GameState
 from game import Directions
 from game import Actions
+from game import Grid
+from dataclasses import dataclass, field
+from typing import Any
 import numpy as np
 import game
 import json
@@ -164,11 +168,17 @@ class FirstAgent(CaptureAgent):
     self.movesTaken = 0
     self.initalFoodCount = len(self.getFood(gameState).asList())
     self.spawnLocation = gameState.getAgentPosition(self.index)
+    self.enemyIndices = gameState.getBlueTeamIndices() if self.red else gameState.getRedTeamIndices()
     
     self.previousActionMemory = None
     
     self.debug = False
     self.getOrSetDebug()
+    
+    if (self.red):
+      self.extractLocs = [(15, 1), (15, 2), (15, 4), (15, 5), (15, 7), (15, 8), (15, 11), (15, 12), (15, 13), (15, 14)]
+    else:
+      self.extractLocs = [(16, 1), (16, 2), (16, 3), (16, 4), (16, 7), (16, 8), (16, 10), (16, 11), (16, 13), (16, 14)]
     
     # legalPositions = [(0, 0)]
     # numOfParticles = 1000
@@ -187,14 +197,13 @@ class FirstAgent(CaptureAgent):
       if (KEEPGRAVEYARD):
         self.loadGraveyard()
       
-    #Particle Filter
-    numOfParticles = 1000
-    #List of all possible cords in tuples
-    legalPositions = [(0,0)]
-    self.particleFilter = ParticleFilter(gameState, legalPositions, numOfParticles)
+    #Two Particle Filters for two enemies
+    numOfParticles = 300
+    self.particleFilter1 = ParticleFilter(gameState, self.red, self.enemyIndices[0], numOfParticles)
+    self.particleFilter2 = ParticleFilter(gameState, self.red, self.enemyIndices[1], numOfParticles)
     
   def getOrSetDebug(self) -> str:
-    if (self.red): self.debug = True
+    if (self.index == 0): self.debug = True
     return "FirstAgent"
   
   def loadWeights(self) -> None:
@@ -312,14 +321,20 @@ class FirstAgent(CaptureAgent):
     # start = time.time()
     
     #Thompson Sampling when training
-    if self.isTraining:
+    if self.isTraining:      
+      #Update Particle Filter
+      self.particleFilter1.elapseTime()
+      self.particleFilter2.elapseTime()
+      observation = [observed for index, observed in enumerate(gameState.getAgentDistances())]
+      self.particleFilter1.observe(observation[self.particleFilter1.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
+      self.particleFilter1.observe(observation[self.particleFilter1.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
+      
+      if self.debug: self.particleFilter1.getApproximateLocations()
+      
+      #if self.debug: print("Belief Distribution: \n%s\n" % str(self.particleFilter.getBeliefDistribution()))
+      
       #Update weights and TS
       if (self.previousActionMemory != None):
-        currentState = gameState
-          
-        if (self.debug and currentState.getAgentState(self.index).numReturned > 0):
-          print("Returned: %s" % currentState.getAgentState(self.index).numReturned)
-        
         #Update weights and all that
         self.update(self.previousActionMemory[0], self.previousActionMemory[1], gameState, self.getReward(self.previousActionMemory[0], self.previousActionMemory[1], gameState))
       
@@ -363,6 +378,8 @@ class FirstAgent(CaptureAgent):
     self.movesTaken += 1
     
     # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
+    
+    # if self.debug: print("Deadend?: %s" % self.checkIfDeadEnd(gameState, action))
 
     return action
   
@@ -542,11 +559,19 @@ class FirstAgent(CaptureAgent):
   def customHash2(self, x: tuple) -> float:
     return x[1]/16 if self.red else (16 - x[1])/16
 
-  def checkIfReturning(self, oldPos: tuple, myPos: tuple) -> bool:
+  def checkIfReturning(self, oldPos: tuple, myPos: tuple, gameState: GameState) -> bool:
     if self.red:
       return oldPos[0] > myPos[0]
     else:
       return oldPos[0] < myPos[0]
+    
+  def checkIfDeadEnd(self, gameState: GameState, action: str) -> bool:
+    initalLoc = gameState.getAgentPosition(self.index)
+    loc = self.getSuccessor(gameState, action).getAgentPosition(self.index)
+    
+    #After you finish particle filterer do this
+    
+    return True
 
   def getFeatures(self, gameState: GameState, action: str) -> dict[str: float]:
     """
@@ -568,12 +593,14 @@ class FirstAgent(CaptureAgent):
     myPos = successor.getAgentState(self.index).getPosition()
     
     features['died'] = 1 if oldPos == self.spawnLocation else 0
-    if pacmanState.numCarrying > 0 and self.checkIfReturning(oldPos, myPos) and pacmanState.isPacman:
+    if pacmanState.numCarrying > 0 and self.checkIfReturning(oldPos, myPos, gameState) and pacmanState.isPacman:
       features['returningFoodToBase'] = 0.25 * pacmanState.numCarrying
-    elif pacmanState.numCarrying > 0 and not self.checkIfReturning(oldPos, myPos) and pacmanState.isPacman:
+    elif pacmanState.numCarrying > 0 and not self.checkIfReturning(oldPos, myPos, gameState) and pacmanState.isPacman:
       features['returningFoodToBase'] = -0.25 * pacmanState.numCarrying
     else:
       features['returningFoodToBase'] = 0
+      
+    if self.debug and self.movesTaken > 0: print(str([location for location in self.particleFilter1.getApproximateLocations()]))
     
     if len(oldFoodList) > 0 and len(foodList) > 0:  # This should always be True,  but better safe than sorry
       oldMinFoodDistance = min([self.getMazeDistance(oldPos, food) if oldPos != food else 100 for food in oldFoodList])
@@ -619,7 +646,7 @@ class FirstAgent(CaptureAgent):
     return -0.75 if featureValue > 0 else 0
   def gotScoreReward(self, featureValue: float) -> float:
     if featureValue > 0:
-      if (self.debug): print("returned to base with pellet")
+      #if (self.debug): print("returned to base with pellet")
       return 1.5
     else: 
       return -0.0025
@@ -630,16 +657,16 @@ class FirstAgent(CaptureAgent):
       return 0
   def diedReward (self, featureValue: float) -> float:
     if featureValue > 0 and self.movesTaken > 1:
-      if (self.debug): print(" I JUST FUCKING DIED ")
+      #if (self.debug): print(" I JUST FUCKING DIED ")
       return -2
     else:
       return 0
   def returningFoodToBaseReward(self, featureValue: float) -> float:
     if featureValue > 0:
-      print("returningFoodToBase")
+      #print("returningFoodToBase")
       return 0.25
     elif featureValue < 0:
-      print("refusing to return to base ...")
+      #print("refusing to return to base ...")
       return -0.25
     else:
       return 0
@@ -782,3 +809,136 @@ class DummyAgent(CaptureAgent):
 
     return random.choice(actions)
 
+#Helper Classes
+
+class ParticleFilter():
+  """
+  A particle filter for approximately tracking a single ghost.
+  """
+
+  def __init__(self, gameState: GameState, isRed: bool, index: int, numParticles: int=300) -> None:
+    self.numParticles = numParticles
+    self.beliefs = util.Counter()
+    self.targetIndex = index
+    self.spawnLoc = gameState.getInitialAgentPosition(self.targetIndex)
+    self.walls = gameState.getWalls()
+    
+    allLocations = Grid(32, 16, True).asList()
+    self.legalPositions = []
+    for location in allLocations:
+      if self.walls[location[0]][location[1]] == False:
+        self.legalPositions.append(location)
+    
+    self.initializeUniformly()
+    
+    self.distancer = distanceCalculator.Distancer(gameState.data.layout)
+      
+  def getPositionDistribution(self, enemyLocation: tuple) -> util.Counter:
+    """
+    Returns a equally distributed distribution over successor positions of a given location.
+    """
+    newLocations = Actions.getLegalNeighbors(enemyLocation, self.walls)
+    dist = util.Counter()
+    prob = 1/len(newLocations)
+    for location in newLocations:
+      dist[location] = prob
+    return dist
+
+  def initializeUniformly(self) -> None:
+    """
+    Initializes a list of particles.
+    """
+    uniformedParticles = [None] * self.numParticles
+    for particleNum in range(0, self.numParticles):
+      newParticle = self.legalPositions[particleNum % len(self.legalPositions)]
+      uniformedParticles[particleNum] = newParticle
+    
+    self.beliefs = util.Counter()
+    for particlePosition in uniformedParticles:
+      self.beliefs[particlePosition] = self.beliefs[particlePosition] + 1 if self.beliefs[particlePosition] != None else 1
+        
+    self.beliefs.normalize()
+    
+    return uniformedParticles 
+  
+  def getObservationDistribution(self, noisyDistance: float, gameState: GameState, myPos: tuple) -> dict[int: float]:
+    dist = {}
+    for possibleEnemyLoc in self.legalPositions:
+      distanceToLoc = self.distancer.getDistance(possibleEnemyLoc, myPos)
+      dist[distanceToLoc] = gameState.getDistanceProb(distanceToLoc, noisyDistance)
+        
+    return dist
+  
+  def observe(self, noisyDistance: float, gameState: GameState, myPos: tuple[int]) -> dict[tuple[int]: float]:
+    """
+    Update beliefs based on the given distance observation.
+    """
+    emissionModel = self.getObservationDistribution(noisyDistance, gameState, myPos)
+    
+    if self.beliefs.totalCount() == 0:
+      self.initializeUniformly()
+        
+    for position in self.beliefs.keys():
+      self.beliefs[position] = emissionModel[self.distancer.getDistance(position, myPos)] * self.beliefs[position]
+    
+    self.beliefs.normalize()
+    return self.beliefs
+  
+  def killedAgent(self) -> None:
+    """
+    Update beliefs for when player eats the enemy
+    """
+    for loc in self.legalPositions:
+      self.beliefs[loc] = 0.0
+    self.beliefs[self.spawnLoc] = 1.0
+  
+  def foundAgent(self, foundLocation: tuple[int]) -> None:
+    """
+    Update beliefs for when player finds the enemy location
+    """
+    for loc in self.legalPositions:
+      self.beliefs[loc] = 0.0
+    self.beliefs[foundLocation] = 1.0
+
+  def elapseTime(self) -> None:
+    """
+    Update beliefs for a time step elapsing.
+    """
+    bprime = util.Counter() 
+    for oldPos in self.legalPositions: 
+      newPosDist = self.getPositionDistribution(oldPos) 
+      for newPos, prob in newPosDist.items():
+        bprime[newPos] = self.beliefs[oldPos] * prob + bprime[newPos] 
+
+    bprime.normalize()
+    self.beliefs = bprime
+
+  def getBeliefDistribution(self) -> util.Counter:
+    """
+    Return the agent's current belief state, a distribution over ghost
+    locations conditioned on all evidence and time passage. This method
+    essentially converts a list of particles into a belief distribution (a
+    Counter object)
+    """
+
+    return self.beliefs
+  
+  def getTargetIndex(self) -> int:
+    return self.targetIndex
+  
+  def getApproximateLocations(self, count: int = 10) -> list[tuple]:
+      locationArray = [None] * len(self.beliefs)
+      for index, (location, prob) in enumerate(self.beliefs.items()):
+          locationArray[index] = HeapNode(prob, location)
+      
+      largestNodes = heapq.nlargest(count, locationArray)
+      topLocs = [None] * count
+      for index, node in enumerate(largestNodes):
+        if node.prob != 0: topLocs[index] = node.loc
+          
+      return [x for x in topLocs if x is not None]
+
+@dataclass(order=True)
+class HeapNode:
+  prob: float
+  loc: Any=field(compare=False)
