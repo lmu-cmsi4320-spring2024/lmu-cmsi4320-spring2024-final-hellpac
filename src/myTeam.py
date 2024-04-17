@@ -171,6 +171,11 @@ class FirstAgent(CaptureAgent):
     self.spawnLocation = gameState.getAgentPosition(self.index)
     self.enemyIndices = gameState.getBlueTeamIndices() if self.red else gameState.getRedTeamIndices()
     
+    #Two Particle Filters for two enemies
+    numOfParticles = 1000
+    self.particleFilter1 = ParticleFilter(gameState, self.red, self.enemyIndices[0], numOfParticles)
+    self.particleFilter2 = ParticleFilter(gameState, self.red, self.enemyIndices[1], numOfParticles)
+    
     self.previousActionMemory = None
     
     self.debug = False
@@ -197,11 +202,6 @@ class FirstAgent(CaptureAgent):
     
       if (KEEPGRAVEYARD):
         self.loadGraveyard()
-      
-    #Two Particle Filters for two enemies
-    numOfParticles = 300
-    self.particleFilter1 = ParticleFilter(gameState, self.red, self.enemyIndices[0], numOfParticles)
-    self.particleFilter2 = ParticleFilter(gameState, self.red, self.enemyIndices[1], numOfParticles)
     
   def getOrSetDebug(self) -> str:
     if (self.index == 0): self.debug = True
@@ -462,6 +462,7 @@ class FirstAgent(CaptureAgent):
     featureDifference = util.Counter()
     
     for feature in rewards:
+      #if self.debug: print("featureDifference[%s]:  %s  = (%s + ( %s * %s)) - %s" % (feature, (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa, rewards[feature], self.discount, maxFutureActionQ_sa, q_sa))
       if rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa
       else: featureDifference[feature] = (reward + (self.discount * maxFutureActionQ_sa)) - q_sa
         
@@ -580,10 +581,13 @@ class FirstAgent(CaptureAgent):
     
   def checkIfDeadEnd(self, gameState: GameState, action: str) -> bool:
     initalLoc = gameState.getAgentPosition(self.index)
-    loc = self.getSuccessor(gameState, action).getAgentPosition(self.index)
+    currentLoc = self.getSuccessor(gameState, action).getAgentPosition(self.index)
     
     #After you finish particle filterer do this
     
+    return True
+
+  def checkIfGhostAhead(self, gameState: GameState, action: str) -> bool:
     return True
 
   def checkIfGhost(self, isRed: bool, loc: tuple) -> bool:
@@ -623,15 +627,32 @@ class FirstAgent(CaptureAgent):
       features['closerToFood'] = 0 if newMinFoodDistance >= oldMinFoodDistance else 1
       # features['distanceToFood'] = newMinFoodDistance
     
-    enemies = [successor.getAgentState(opponent) for opponent in self.getOpponents(successor)]
-    ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
-    if len(ghosts) > 0:
-      oldMinGhostDistance = min([self.getMazeDistance(oldPos , a.getPosition()) if oldPos != a.getPosition() else 100 for a in ghosts]) + 1
-      newMinGhostDistance = min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
-      features['closerToGhost'] = 0 if newMinGhostDistance >= oldMinGhostDistance else 1
-      features['distanceToGhost'] = newMinGhostDistance
-      features['rightNextToGhost'] = 1 if newMinGhostDistance <= 1 else 0
-      features['walkedIntoGhost'] = 1 if newMinGhostDistance == 0 else 0
+    enemyLocs = {}
+    for enemyIndex in self.getOpponents(gameState):
+      if enemyIndex != None:
+        if self.particleFilter1.getTargetIndex() == enemyIndex:
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in self.particleFilter1.getGhostApproximateLocations().items()]
+        elif self.particleFilter2.getTargetIndex() == enemyIndex:
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in self.particleFilter2.getGhostApproximateLocations().items()]
+    
+    oldMinEnemyDistance = 100
+    oldAvgEnemyDistance = 0
+    currentMinEnemyDistance = 100
+    currentAvgEnemyDistance = 0
+    for enemyIndex in enemyLocs:
+      for locProbTuple in enemyLocs[enemyIndex]:
+        oldEnemyDistance = self.distancer.getDistance(oldPos, locProbTuple[0])
+        oldAvgEnemyDistance += oldEnemyDistance * locProbTuple[1] /2
+        
+        if oldEnemyDistance < oldMinEnemyDistance:
+          oldMinEnemyDistance = oldEnemyDistance
+        
+        currentEnemyDistance = self.distancer.getDistance(myPos, locProbTuple[0])
+        currentAvgEnemyDistance += currentEnemyDistance * locProbTuple[1] /2
+        if currentEnemyDistance < currentMinEnemyDistance:
+          currentMinEnemyDistance = currentEnemyDistance
+    
+    features['closerToGhost'] = oldAvgEnemyDistance - currentAvgEnemyDistance if (currentAvgEnemyDistance < oldAvgEnemyDistance) else 0
         
     if action == Directions.STOP: features['stop'] = 1
     else: features['stop'] = 0
@@ -676,27 +697,14 @@ class FirstAgent(CaptureAgent):
     elif featureValue == 1: return 0.01
     else: return 0
   def closerToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
-    if featuresAtState['died'] == 1: return -0.05 * featureValue
-    elif featureValue == 1: return -0.025
-    else: return 0
-  def distanceToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
-    if featuresAtState['died'] == 1 and featureValue > 0: return (-featureValue + 5)/5
-    elif featureValue > 0: return (-featureValue + 5)/10
+    if featureValue > 0 and featuresAtState['onDefense'] == 1: return -0.025 * featureValue
     else: return 0 
-  def rightNextToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
-    #DUMBASS
-    if featuresAtState['died'] == 1: 
-      return -1
-    elif featureValue > 0:
-      return -0.5
-    else:
-      return 0
   def walkedIntoGhostReward(self, featureValue: float) -> float:
     #DUMBASS
     return -1 if featureValue > 0 else 0
-  def stopReward(self) -> float:
+  def stopReward(self, featureValue: float) -> float:
     #STOP WASITNG TIME STOPPING NO TIME FOR STOP
-    return -0.5
+    return -0.5 if featureValue > 0 else -0.01
   
 class SecondAgent(FirstAgent):
   #PACMAN CHASER PROFESSIONAL
@@ -709,6 +717,7 @@ class SecondAgent(FirstAgent):
     successor = self.getSuccessor(gameState, action)
     
     oldPos = gameState.getAgentState(self.index).getPosition()
+    oldState = gameState.getAgentState(self.index)
     
     myState = successor.getAgentState(self.index)
     myPos = myState.getPosition()
@@ -716,11 +725,44 @@ class SecondAgent(FirstAgent):
     features['onDefense'] = 1
     if myState.isPacman:
         features['onDefense'] = 0
-    
-    nearbyEnemies = {}
-    for opponent in self.getOpponents(successor):
-      nearbyEnemies[opponent] = successor.getAgentState(opponent)
       
+    features['gotOffDefense'] = 1 if myState.isPacman and not oldState.isPacman else 0
+    
+    features['died'] = 1 if oldPos == self.spawnLocation else 0
+    
+    enemyLocs = {}
+    for enemyIndex in self.getOpponents(gameState):
+      if enemyIndex != None:
+        if self.particleFilter1.getTargetIndex() == enemyIndex:
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in self.particleFilter1.getPacmanApproximateLocations().items()]
+        elif self.particleFilter2.getTargetIndex() == enemyIndex:
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in self.particleFilter2.getPacmanApproximateLocations().items()]
+    
+    oldMinEnemyDistance = 100
+    oldAvgEnemyDistance = 0
+    currentMinEnemyDistance = 100
+    currentAvgEnemyDistance = 0
+    for enemyIndex in enemyLocs:
+      for locProbTuple in enemyLocs[enemyIndex]:
+        oldEnemyDistance = self.distancer.getDistance(oldPos, locProbTuple[0])
+        oldAvgEnemyDistance += oldEnemyDistance * locProbTuple[1] /2
+        
+        if oldEnemyDistance < oldMinEnemyDistance:
+          oldMinEnemyDistance = oldEnemyDistance
+        
+        currentEnemyDistance = self.distancer.getDistance(myPos, locProbTuple[0])
+        currentAvgEnemyDistance += currentEnemyDistance * locProbTuple[1] /2
+        if currentEnemyDistance < currentMinEnemyDistance:
+          currentMinEnemyDistance = currentEnemyDistance
+    
+    features['closerToGhost'] = oldAvgEnemyDistance - currentAvgEnemyDistance if (currentAvgEnemyDistance < oldAvgEnemyDistance) else 0
+    
+    center = (15, 7) if self.red else (16, 7)
+    oldCenterDistance = self.distancer.getDistance(oldPos, center)
+    newCenterDistance = self.distancer.getDistance(myPos, center)
+    
+    features['closerToCenter'] = 0.01 if newCenterDistance < oldCenterDistance else 0
+    
     # if len(ghosts) > 0:
     #   oldMinGhostDistance = min([self.getMazeDistance(oldPos , a.getPosition()) if oldPos != a.getPosition() else 100 for a in ghosts]) + 1
     #   newMinGhostDistance = min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
@@ -739,23 +781,22 @@ class SecondAgent(FirstAgent):
     return features
   
   def onDefenseReward(self, featureValue: float) -> float:
-    return 0.01 if featureValue == 1 else -0.01
-  
-  def gotScoreReward(self, featureValue: float) -> float:
-    return 0 if featureValue > 0 else 0
-  
+    return 0.05 if featureValue == 1 else -0.05
+  def gotOffDefenseReward(self, featureValue: float) -> float:
+    return -2 if featureValue > 0 else 0
+  def diedReward(self, featureValue: float) -> float:
+    return -2 if featureValue > 0 else 0
   def closerToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
-    if featureValue == 1 and featuresAtState['onDefense'] == 1: return 0.05
-    else: return -0.005
-  def distanceToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
-    return (featureValue + 5)/5 if featuresAtState['onDefense'] == 1 else 0
-  def rightNextToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
-    return 1 if featureValue > 0 and featuresAtState['onDefense'] == 1 else 0
+    if featureValue > 0 and featuresAtState['onDefense'] == 1: return 0.025 * featureValue
+    else: return 0 
+  def closerToCenterReward(self, featureValue: float) -> float:
+    if featureValue > 0: return 0.00005 * featureValue
+    else: return 0
   def walkedIntoGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
     return 10 if featureValue > 0 and featuresAtState['onDefense'] == 1 else 0
-  def stopReward(self) -> float:
+  def stopReward(self, featureValue: float) -> float:
     #STOP WASITNG TIME STOPPING NO TIME FOR STOP
-    return -0.5
+    return -0.5 if featureValue > 0 else -0.01
 
 class DummyAgent(CaptureAgent):
   """
@@ -813,6 +854,7 @@ class ParticleFilter():
     self.targetIndex = index
     self.spawnLoc = gameState.getInitialAgentPosition(self.targetIndex)
     self.walls = gameState.getWalls()
+    self.red = isRed
     
     allLocations = Grid(32, 16, True).asList()
     self.legalPositions = []
@@ -917,16 +959,54 @@ class ParticleFilter():
     return self.beliefs
   
   def getTargetIndex(self) -> int:
+    """
+    Return the particle filter's target agent index
+    """
     return self.targetIndex
   
-  def getApproximateLocations(self, count: int = 10) -> dict[tuple[int]: float]:
+  def getApproximateLocations(self, count: int = 50) -> util.Counter():
+    """
+    Return the approximated locations in dict{location: probability}. Put an int into count to change how much locations you want (default is 10)
+    """
     locationArray = []
     for location, prob in self.beliefs.items():
       if location != None and prob != None and prob > 0:
         locationArray.append(HeapNode(prob, location))
           
     largestNodes = heapq.nlargest(count, locationArray)
-    topLocs = {}
+    topLocs = util.Counter()
+    for node in largestNodes:
+      if node.prob > 0: topLocs[node.loc] = node.prob
+      
+    return topLocs
+  
+  def getPacmanApproximateLocations(self, count: int = 50) -> util.Counter():
+    """
+    Return the approximated locations when the enemy is in Pacman State in dict{location: probability}. Put an int into count to change how much locations you want (default is 10)
+    """
+    locationArray = []
+    for location, prob in self.beliefs.items():
+      if location != None and prob != None and prob > 0:
+        if (not self.red and location[0] >= 16) or (self.red and location[0] <= 15): locationArray.append(HeapNode(prob, location))
+    
+    largestNodes = heapq.nlargest(count, locationArray)
+    topLocs = util.Counter()
+    for node in largestNodes:
+      if node.prob > 0: topLocs[node.loc] = node.prob
+      
+    return topLocs
+  
+  def getGhostApproximateLocations(self, count: int = 50) -> util.Counter():
+    """
+    Return the approximated locations when the enemy is in Ghost State in dict{location: probability}. Put an int into count to change how much locations you want (default is 10)
+    """
+    locationArray = []
+    for location, prob in self.beliefs.items():
+      if location != None and prob != None and prob > 0:
+        if (self.red and location[0] >= 16) or (not self.red and location[0] <= 15): locationArray.append(HeapNode(prob, location))
+    
+    largestNodes = heapq.nlargest(count, locationArray)
+    topLocs = util.Counter()
     for node in largestNodes:
       if node.prob > 0: topLocs[node.loc] = node.prob
       
