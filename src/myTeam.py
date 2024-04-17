@@ -20,6 +20,7 @@ from capture import GameState
 from game import Directions
 from game import Actions
 from game import Grid
+from game import AgentState
 from dataclasses import dataclass, field
 from typing import Any
 import numpy as np
@@ -62,7 +63,7 @@ MOVES = ["North", "South", "East", "West", "Stop"]
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'FirstAgent', second = 'FirstAgent'):
+               first = 'FirstAgent', second = 'SecondAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -320,15 +321,27 @@ class FirstAgent(CaptureAgent):
     
     # start = time.time()
     
-    #Thompson Sampling when training
-    if self.isTraining:      
-      #Update Particle Filter
-      self.particleFilter1.elapseTime()
-      self.particleFilter2.elapseTime()
-      observation = [observed for index, observed in enumerate(gameState.getAgentDistances())]
-      self.particleFilter1.observe(observation[self.particleFilter1.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
-      self.particleFilter1.observe(observation[self.particleFilter1.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
+    #Update Particle Filter to account for observed enemies
+    nearbyEnemies = {}
+    for opponent in self.getOpponents(gameState):
+      nearbyEnemies[opponent] = gameState.getAgentState(opponent)   
       
+    for index, enemy in nearbyEnemies.items():
+      enemyLoc = enemy.getPosition()
+      if enemyLoc != None:
+        if self.particleFilter1.getTargetIndex() == index:
+          self.particleFilter1.foundAgent(enemyLoc)
+        elif self.particleFilter2.getTargetIndex() == index:
+          self.particleFilter2.foundAgent(enemyLoc)
+    
+    #Update Particle Filter for noisy readings
+    self.particleFilter1.elapseTime()
+    self.particleFilter2.elapseTime()
+    noisyReadings = [observed for observed in gameState.getAgentDistances()]
+    self.particleFilter1.observe(noisyReadings[self.particleFilter1.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
+    self.particleFilter2.observe(noisyReadings[self.particleFilter2.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
+    
+    if self.isTraining:      
       if self.debug: self.particleFilter1.getApproximateLocations()
       
       #if self.debug: print("Belief Distribution: \n%s\n" % str(self.particleFilter.getBeliefDistribution()))
@@ -344,6 +357,7 @@ class FirstAgent(CaptureAgent):
       else: foodID = hash(gameState.getBlueFood())
       currentArmBranch = hash((agentID, foodID))
       
+      #Thompson Sampling when training
       if (self.useTSChance != 0):
         if currentArmBranch not in self.armsGraveyard.keys():
           legalActions = gameState.getLegalActions(self.index)
@@ -448,13 +462,12 @@ class FirstAgent(CaptureAgent):
     featureDifference = util.Counter()
     
     for feature in rewards:
-      if feature == 'redHering1' or feature == 'redHering2': featureDifference[feature] = reward*0.001
-      elif rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + reward*0.1 + (self.discount * maxFutureActionQ_sa)) - q_sa
+      if rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa
       else: featureDifference[feature] = (reward + (self.discount * maxFutureActionQ_sa)) - q_sa
         
     featureDict = self.getFeatures(state, action)
     for feature in featureDict.keys():
-      self.weights[feature] += (self.learningRate * featureDifference[feature])
+      self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature]/2)
     
     agentID = hash(state.getAgentPosition(self.index))
     foodID = None
@@ -573,6 +586,10 @@ class FirstAgent(CaptureAgent):
     
     return True
 
+  def checkIfGhost(self, isRed: bool, loc: tuple) -> bool:
+    if isRed: return loc[0] >= 16
+    else: return loc[0] <= 15
+
   def getFeatures(self, gameState: GameState, action: str) -> dict[str: float]:
     """
     Returns a counter of features for the state
@@ -584,10 +601,8 @@ class FirstAgent(CaptureAgent):
     foodList = self.getFood(successor).asList()
     features['collectedFood'] = 1 if len(foodList) > len(oldFoodList) else 0
     features['lostFood'] = 1 if len(foodList) < len(oldFoodList) else 0
-    features['gotScore'] = 1 if successor.getScore() > gameState.getScore() else 0
+    features['gotScore'] = 1 * pacmanState.numCarrying if successor.getScore() > gameState.getScore() else 0
     features['winMove'] = 1 if successor.isOver() else 0
-    features['redHering1'] = self.customHash1(successor.getAgentPosition(self.index))
-    features['redHering2'] = self.customHash2(successor.getAgentPosition(self.index))
     
     oldPos = gameState.getAgentState(self.index).getPosition()
     myPos = successor.getAgentState(self.index).getPosition()
@@ -600,7 +615,7 @@ class FirstAgent(CaptureAgent):
     else:
       features['returningFoodToBase'] = 0
       
-    if self.debug and self.movesTaken > 0: print(str([location for location in self.particleFilter1.getApproximateLocations()]))
+    #if self.debug and self.movesTaken > 0: print(str([location for location in self.particleFilter1.getApproximateLocations()]))
     
     if len(oldFoodList) > 0 and len(foodList) > 0:  # This should always be True,  but better safe than sorry
       oldMinFoodDistance = min([self.getMazeDistance(oldPos, food) if oldPos != food else 100 for food in oldFoodList])
@@ -626,20 +641,6 @@ class FirstAgent(CaptureAgent):
     
     return features
 
-  def redHering1Reward(self, featuresAtState: dict[str: float]) -> float:
-    x = self.getOverallReward(featuresAtState)
-    if x > 1:
-      x = 1
-    if x < -1:
-      x = -1
-    return x/10000
-  def redHering2Reward(self, featuresAtState: dict[str: float]) -> float:
-    x = self.getOverallReward(featuresAtState)
-    if x > 1:
-      x = 1
-    if x < -1:
-      x = -1
-    return x/10000
   def collectedFoodReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
     return 0.1 if featureValue > 0 else -0.001
   def lostFoodReward(self, featureValue: float) -> float:
@@ -647,7 +648,7 @@ class FirstAgent(CaptureAgent):
   def gotScoreReward(self, featureValue: float) -> float:
     if featureValue > 0:
       #if (self.debug): print("returned to base with pellet")
-      return 1.5
+      return featureValue
     else: 
       return -0.0025
   def winMoveReward(self, featureValue: float) -> float:
@@ -706,10 +707,8 @@ class SecondAgent(FirstAgent):
   def getFeatures(self, gameState, action):
     features = util.Counter()
     successor = self.getSuccessor(gameState, action)
-    oldFoodList = self.getFood(gameState).asList()
-    foodList = self.getFood(successor).asList()
+    
     oldPos = gameState.getAgentState(self.index).getPosition()
-    myPos = successor.getAgentState(self.index).getPosition()
     
     myState = successor.getAgentState(self.index)
     myPos = myState.getPosition()
@@ -718,22 +717,18 @@ class SecondAgent(FirstAgent):
     if myState.isPacman:
         features['onDefense'] = 0
     
-    if len(oldFoodList) > 0 and len(foodList) > 0:  # This should always be True,  but better safe than sorry
-      oldMinFoodDistance = min([self.getMazeDistance(oldPos, food) if oldPos != food else 100 for food in oldFoodList])
-      newMinFoodDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-      features['closerToFood'] = 0 if newMinFoodDistance >= oldMinFoodDistance else 1
-    
-    features['gotScore'] = 1 if successor.getScore() > gameState.getScore() else 0
-    
-    enemies = [successor.getAgentState(opponent) for opponent in self.getOpponents(successor)]
-    ghosts = [a for a in enemies if not a.isPacman and a.getPosition() != None]
-    if len(ghosts) > 0:
-      oldMinGhostDistance = min([self.getMazeDistance(oldPos , a.getPosition()) if oldPos != a.getPosition() else 100 for a in ghosts]) + 1
-      newMinGhostDistance = min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
-      features['closerToGhost'] = 0 if newMinGhostDistance >= oldMinGhostDistance else 1
-      features['distanceToGhost'] = newMinGhostDistance
-      features['rightNextToGhost'] = 1 if newMinGhostDistance <= 1 else 0
-      features['walkedIntoGhost'] = 1 if newMinGhostDistance == 0 else 0
+    nearbyEnemies = {}
+    for opponent in self.getOpponents(successor):
+      nearbyEnemies[opponent] = successor.getAgentState(opponent)
+      
+    # if len(ghosts) > 0:
+    #   oldMinGhostDistance = min([self.getMazeDistance(oldPos , a.getPosition()) if oldPos != a.getPosition() else 100 for a in ghosts]) + 1
+    #   newMinGhostDistance = min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
+    #   if self.red: print(newMinGhostDistance)
+    #   features['closerToGhost'] = 0 if newMinGhostDistance >= oldMinGhostDistance else 1
+    #   features['distanceToGhost'] = newMinGhostDistance
+    #   features['rightNextToGhost'] = 1 if newMinGhostDistance <= 1 else 0
+    #   features['walkedIntoGhost'] = 1 if newMinGhostDistance == 0 else 0
         
     if action == Directions.STOP: features['stop'] = 1
     else: features['stop'] = 0
@@ -746,16 +741,12 @@ class SecondAgent(FirstAgent):
   def onDefenseReward(self, featureValue: float) -> float:
     return 0.01 if featureValue == 1 else -0.01
   
-  def closerToFoodReward(self, state: GameState, action : str, featureValue: float) -> float:
-    if featureValue == 1: return 0.0001
-    else: return 0
-    
   def gotScoreReward(self, featureValue: float) -> float:
-    return 2 if featureValue > 0 else -0.002
+    return 0 if featureValue > 0 else 0
   
   def closerToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
-    if featureValue == 1 and featuresAtState['onDefense'] == 1: return 0.25
-    else: return 0
+    if featureValue == 1 and featuresAtState['onDefense'] == 1: return 0.05
+    else: return -0.005
   def distanceToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
     return (featureValue + 5)/5 if featuresAtState['onDefense'] == 1 else 0
   def rightNextToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
@@ -839,9 +830,11 @@ class ParticleFilter():
     """
     newLocations = Actions.getLegalNeighbors(enemyLocation, self.walls)
     dist = util.Counter()
-    prob = 1/len(newLocations)
+    possibleNumberOfMoves = len(newLocations)
+    stopProb = (possibleNumberOfMoves**2 -1)/100
+    avgMoveProb = (100 - stopProb)/(possibleNumberOfMoves -1)
     for location in newLocations:
-      dist[location] = prob
+      dist[location] = avgMoveProb
     return dist
 
   def initializeUniformly(self) -> None:
@@ -896,10 +889,10 @@ class ParticleFilter():
     """
     Update beliefs for when player finds the enemy location
     """
-    for loc in self.legalPositions:
+    for loc in self.beliefs:
       self.beliefs[loc] = 0.0
     self.beliefs[foundLocation] = 1.0
-
+    
   def elapseTime(self) -> None:
     """
     Update beliefs for a time step elapsing.
@@ -926,17 +919,18 @@ class ParticleFilter():
   def getTargetIndex(self) -> int:
     return self.targetIndex
   
-  def getApproximateLocations(self, count: int = 10) -> list[tuple]:
-      locationArray = [None] * len(self.beliefs)
-      for index, (location, prob) in enumerate(self.beliefs.items()):
-          locationArray[index] = HeapNode(prob, location)
-      
-      largestNodes = heapq.nlargest(count, locationArray)
-      topLocs = [None] * count
-      for index, node in enumerate(largestNodes):
-        if node.prob != 0: topLocs[index] = node.loc
+  def getApproximateLocations(self, count: int = 10) -> dict[tuple[int]: float]:
+    locationArray = []
+    for location, prob in self.beliefs.items():
+      if location != None and prob != None and prob > 0:
+        locationArray.append(HeapNode(prob, location))
           
-      return [x for x in topLocs if x is not None]
+    largestNodes = heapq.nlargest(count, locationArray)
+    topLocs = {}
+    for node in largestNodes:
+      if node.prob > 0: topLocs[node.loc] = node.prob
+      
+    return topLocs
 
 @dataclass(order=True)
 class HeapNode:
