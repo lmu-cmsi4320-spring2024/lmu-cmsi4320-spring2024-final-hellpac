@@ -464,11 +464,12 @@ class FirstAgent(CaptureAgent):
     for feature in rewards:
       #if self.debug: print("featureDifference[%s]:  %s  = (%s + ( %s * %s)) - %s" % (feature, (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa, rewards[feature], self.discount, maxFutureActionQ_sa, q_sa))
       if rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa
-      else: featureDifference[feature] = (reward + (self.discount * maxFutureActionQ_sa)) - q_sa
+      else: featureDifference[feature] = (reward/100 + (self.discount * maxFutureActionQ_sa)) - q_sa
         
     featureDict = self.getFeatures(state, action)
     for feature in featureDict.keys():
-      self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature]/2)
+      if rewards[feature] != 404: self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature]/2)
+      else: self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature]/10)
     
     agentID = hash(state.getAgentPosition(self.index))
     foodID = None
@@ -608,6 +609,10 @@ class FirstAgent(CaptureAgent):
     features['gotScore'] = 1 * pacmanState.numCarrying if successor.getScore() > gameState.getScore() else 0
     features['winMove'] = 1 if successor.isOver() else 0
     
+    features['onAttack'] = 0
+    if pacmanState.isPacman:
+        features['onAttack'] = 1
+    
     oldPos = gameState.getAgentState(self.index).getPosition()
     myPos = successor.getAgentState(self.index).getPosition()
     
@@ -652,7 +657,10 @@ class FirstAgent(CaptureAgent):
         if currentEnemyDistance < currentMinEnemyDistance:
           currentMinEnemyDistance = currentEnemyDistance
     
-    features['closerToGhost'] = oldAvgEnemyDistance - currentAvgEnemyDistance if (currentAvgEnemyDistance < oldAvgEnemyDistance) else 0
+    if (currentAvgEnemyDistance < oldAvgEnemyDistance) and pacmanState.isPacman:
+      features['closerToGhost'] = 1
+    elif (currentAvgEnemyDistance < oldAvgEnemyDistance): features['closerToGhost'] = 0.1
+    else: features['closerToGhost'] = 0
         
     if action == Directions.STOP: features['stop'] = 1
     else: features['stop'] = 0
@@ -661,7 +669,10 @@ class FirstAgent(CaptureAgent):
     # self.particleFilter
     
     return features
-
+  
+  def onAttackReward(self) -> float:
+    #This feature's effect will be reduced
+    return 404
   def collectedFoodReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
     return 0.1 if featureValue > 0 else -0.001
   def lostFoodReward(self, featureValue: float) -> float:
@@ -697,7 +708,7 @@ class FirstAgent(CaptureAgent):
     elif featureValue == 1: return 0.01
     else: return 0
   def closerToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
-    if featureValue > 0 and featuresAtState['onDefense'] == 1: return -0.025 * featureValue
+    if featureValue > 0 and featuresAtState['onAttack'] == 1: return -0.05 * featureValue
     else: return 0 
   def walkedIntoGhostReward(self, featureValue: float) -> float:
     #DUMBASS
@@ -762,15 +773,6 @@ class SecondAgent(FirstAgent):
     newCenterDistance = self.distancer.getDistance(myPos, center)
     
     features['closerToCenter'] = 0.01 if newCenterDistance < oldCenterDistance else 0
-    
-    # if len(ghosts) > 0:
-    #   oldMinGhostDistance = min([self.getMazeDistance(oldPos , a.getPosition()) if oldPos != a.getPosition() else 100 for a in ghosts]) + 1
-    #   newMinGhostDistance = min([self.getMazeDistance(myPos, a.getPosition()) for a in ghosts]) + 1
-    #   if self.red: print(newMinGhostDistance)
-    #   features['closerToGhost'] = 0 if newMinGhostDistance >= oldMinGhostDistance else 1
-    #   features['distanceToGhost'] = newMinGhostDistance
-    #   features['rightNextToGhost'] = 1 if newMinGhostDistance <= 1 else 0
-    #   features['walkedIntoGhost'] = 1 if newMinGhostDistance == 0 else 0
         
     if action == Directions.STOP: features['stop'] = 1
     else: features['stop'] = 0
