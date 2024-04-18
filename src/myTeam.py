@@ -29,6 +29,7 @@ import json
 import inspect
 import os.path
 import math
+import copy
 
 ##################
 # Game Constants #
@@ -157,7 +158,7 @@ class FirstAgent(CaptureAgent):
     self.weights = util.Counter() 
     self.loadWeights()
     
-    self.discount=0.8
+    self.discount=0.9
     self.learningRate=0.01
     self.epsilon = 0.2
     
@@ -190,7 +191,9 @@ class FirstAgent(CaptureAgent):
     # numOfParticles = 1000
     # self.particleFilter = ParticleFilter(gameState, legalPositions, numOfParticles)
     
-    self.featuresList = list(self.getFeatures(gameState, gameState.getLegalActions(self.index)[0]).keys())
+    firstAction = gameState.getLegalActions(self.index)[0]
+    firstState = self.getSuccessor(gameState, firstAction)
+    self.featuresList = list(self.getFeatures(gameState, firstAction, firstState, self.particleFilter1, self.particleFilter2))
 
     if (self.isTraining):
       #Thompson Sampling
@@ -313,13 +316,7 @@ class FirstAgent(CaptureAgent):
     Picks among the actions with the highest Q(s,a).
     """
     
-    if (self.isTraining):
-      #Temp saves weights into json file (change this later)
-      self.updateWeights()
-      #Temp saves graveyard into json file (change this later)
-      self.updateGraveyard()
-    
-    # start = time.time()
+    if self.debug and self.red: start = time.time()
     
     #Update Particle Filter to account for observed enemies
     nearbyEnemies = {}
@@ -341,15 +338,22 @@ class FirstAgent(CaptureAgent):
     self.particleFilter1.observe(noisyReadings[self.particleFilter1.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
     self.particleFilter2.observe(noisyReadings[self.particleFilter2.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
     
-    if self.isTraining:      
-      if self.debug: self.particleFilter1.getApproximateLocations()
-      
+    if not self.debug and self.red: print("\n\n\n-----------------------------------Move %s-----------------------------------\n"% self.movesTaken)
+    
+    if (self.isTraining):
+      #Temp saves weights into json file (change this later)
+      self.updateWeights()
+      #Temp saves graveyard into json file (change this later)
+      self.updateGraveyard()
+         
       #if self.debug: print("Belief Distribution: \n%s\n" % str(self.particleFilter.getBeliefDistribution()))
       
       #Update weights and TS
       if (self.previousActionMemory != None):
+        featureDict = self.getFeatures(self.previousActionMemory[0], self.previousActionMemory[1], gameState, self.particleFilter1, self.particleFilter2)
+        
         #Update weights and all that
-        self.update(self.previousActionMemory[0], self.previousActionMemory[1], gameState, self.getReward(self.previousActionMemory[0], self.previousActionMemory[1], gameState))
+        self.update(self.previousActionMemory[0], self.previousActionMemory[1], gameState, self.getReward(self.previousActionMemory[0], self.previousActionMemory[1], gameState, featureDict), featureDict)
       
       agentID = hash(gameState.getAgentPosition(self.index))
       foodID = None
@@ -384,17 +388,19 @@ class FirstAgent(CaptureAgent):
         action = MOVES[chosenActionIndex]
       elif random.random() < self.epsilon:
         action = self.getRandomAction(gameState)
+        if self.red and self.debug: print("Got Random Action: %s" % action)
       else:
         action = self.getBestAction(gameState)
+        if self.red and self.debug: print("Got Best Action: %s" % action)
     else:
       action = self.getBestAction(gameState)
     self.previousActionMemory = (gameState, action)
     self.movesTaken += 1
     
-    # print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
-    
     # if self.debug: print("Deadend?: %s" % self.checkIfDeadEnd(gameState, action))
 
+    if self.debug and self.red: print('eval time for chooseAction %d: %.4f' % (self.index, time.time() - start))
+    
     return action
   
   def getRandomAction(self, state: GameState) -> str:
@@ -418,8 +424,10 @@ class FirstAgent(CaptureAgent):
     bestActions = []
     bestQValue = float('-inf')
 
+    if self.red and self.debug: print("\nGetting Best Action:")
     for action in legalActions:
       qValue = self.getQValue(state, action)
+      if self.red and self.debug: print("Action: %s,  QValue: %s" % (action, qValue))
       if qValue > bestQValue:
         bestActions = [action]
         bestQValue = qValue
@@ -430,7 +438,7 @@ class FirstAgent(CaptureAgent):
     
     return random.choice(bestActions)
   
-  def getMaxQ_SA(self, state: GameState) -> float:
+  def getMaxQ_SA(self, oldPos: tuple, state: GameState) -> float:
     """
       Returns max_action Q(state,action)
       where the max is over legal actions.  Note that if
@@ -443,33 +451,35 @@ class FirstAgent(CaptureAgent):
     else: foodID = hash(state.getBlueFood())
     currentArmBranch = hash((agentID, foodID))
     
+    optimalValuesFeature = self.getOptimalValues(oldPos, state.getAgentPosition(self.index), state, self.particleFilter1, self.particleFilter2)
+    
     legalActions = state.getLegalActions(self.index)
     if not legalActions:
       return 0.0  # Terminal state, no legal actions
 
-    maxQValue = max(self.getQValue(state, action) +  self.optimisticConstant/(self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1) for action in legalActions)
+    maxQValue = max(self.getQValue(state, action) + optimalValuesFeature[action] * self.weights['onOptimalPath'] + self.optimisticConstant/(self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1) for action in legalActions)
     return maxQValue
   
-  def update(self, state: GameState, action: str, nextState: GameState, rewards: dict[str: float]):
+  def update(self, state: GameState, action: str, nextState: GameState, rewards: dict[str: float], featureDict: util.Counter):
     """
       Updates the weights, Also updates the thompson samples
     """
     reward = self.getOverallReward(rewards)
     
-    maxFutureActionQ_sa = self.getMaxQ_SA(nextState)
+    maxFutureActionQ_sa = self.getMaxQ_SA(state.getAgentPosition(self.index), nextState)
     q_sa = self.getQValue(state, action)
     
     featureDifference = util.Counter()
     
     for feature in rewards:
-      #if self.debug: print("featureDifference[%s]:  %s  = (%s + ( %s * %s)) - %s" % (feature, (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa, rewards[feature], self.discount, maxFutureActionQ_sa, q_sa))
       if rewards[feature] != 404: featureDifference[feature] = (rewards[feature] + (self.discount * maxFutureActionQ_sa)) - q_sa
       else: featureDifference[feature] = (reward/100 + (self.discount * maxFutureActionQ_sa)) - q_sa
-        
-    featureDict = self.getFeatures(state, action)
+    
+    if self.red and self.debug: print("\nUpdating Features,  maxQ`_s`a`: %s,  Q_sa: %s" % (maxFutureActionQ_sa, q_sa))
+    
     for feature in featureDict.keys():
-      if rewards[feature] != 404: self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature]/2)
-      else: self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature]/10)
+      if self.red and self.debug and abs(self.learningRate * featureDifference[feature] * featureDict[feature]) > 0: print("%s Update: = %s = difference{%s} * featureValue{%s} * learningRate{%s}" % (feature, str(self.learningRate * featureDifference[feature] * featureDict[feature]), featureDifference[feature], featureDict[feature], self.learningRate))
+      self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature])
     
     agentID = hash(state.getAgentPosition(self.index))
     foodID = None
@@ -498,15 +508,15 @@ class FirstAgent(CaptureAgent):
       #print("Thompson Values: %s" % self.armsGraveyard)
       # print()
     
-  def getReward(self, state: GameState, action : str, nextState: GameState) -> dict[str: float]:
+  def getReward(self, state: GameState, action : str, nextState: GameState, featureDict: util.Counter) -> dict[str: float]:
     """
       Returns reward when given a state, action, and nextState. Should only be called when training
     """
     if not self.isTraining:
-      print("WTF error why did u call getReward when ur not training. Returning 0")
-      return 0
+      print("WTF error why did u call getReward when ur not training. Returning None")
+      return None
     
-    featuresAtState = self.getFeatures(state, action)
+    featuresAtState = featureDict
     
     #For Reward Splitting
     reward = {}
@@ -566,7 +576,12 @@ class FirstAgent(CaptureAgent):
     """
     Computes a linear combination of features and feature weights
     """
-    return self.getFeatures(gameState, action) * self.weights
+    pf1 = copy.deepcopy(self.particleFilter1)
+    pf2 = copy.deepcopy(self.particleFilter2)
+    pf1.elapseTime()
+    pf2.elapseTime()
+    featureVector = self.getFeatures(gameState, action, self.getSuccessor(gameState, action), pf1, pf2, optimal=False) 
+    return featureVector * self.weights
 
   def customHash1(self, x: tuple) -> float:
     return x[0]/31 if self.red else (31 - x[0])/31
@@ -574,55 +589,80 @@ class FirstAgent(CaptureAgent):
   def customHash2(self, x: tuple) -> float:
     return x[1]/16 if self.red else (16 - x[1])/16
 
-  def checkIfReturning(self, oldPos: tuple, myPos: tuple, gameState: GameState) -> bool:
-    if self.red:
-      return oldPos[0] > myPos[0]
-    else:
-      return oldPos[0] < myPos[0]
+  def getOptimalValues(self, oldPos: tuple, myPos: tuple, gameState: GameState, pf1: any, pf2: any) -> util.Counter:
+    """
+    Returns action -> featureValue dictionary for onOptimalPath feature  (exists to optimize the use of this function)
+    Basically same function as checkIfOptimal but it returns a util.Counter of the optimal values instead of a bool
+    """
     
-  def checkIfDeadEnd(self, gameState: GameState, action: str) -> bool:
-    initalLoc = gameState.getAgentPosition(self.index)
-    currentLoc = self.getSuccessor(gameState, action).getAgentPosition(self.index)
+    self.checkIfOptimal(oldPos, myPos, gameState, pf1, pf2)
     
-    #After you finish particle filterer do this
+    return util.Counter()
+
+  def checkIfOptimal(self, oldPos: tuple, myPos: tuple, gameState: GameState, pf1: any, pf2: any) -> bool:
+    """
+    An optimality checker for the agent that also takes into account enemy locations, pellet locations, capsule locations (Goal is to atleast get one pellet)
+    """
+    if self.debug and self.red: start = time.time()
+    
+    walls = gameState.getWalls()
+    pellets = gameState.getRedFood() if self.red else gameState.getBlueFood()
+    capsules = gameState.getRedCapsules() if self.red else gameState.getBlueCapsules()
+    particleFilter1 = copy.deepcopy(pf1)
+    particleFilter2 = copy.deepcopy(pf2)
+    
+    paths = [(oldPos, myPos, ), ]
+    finishedPaths = list[tuple[tuple[int]]]()
+    
+    while(len(paths) != 0):
+      newPaths = list[tuple[(0, 0)]]()
+      for path in paths:
+        neighbors = [neighbor for neighbor in Actions.getLegalNeighbors(path[-1], walls) if neighbor != path[-1] and neighbor not in path]
+        for newLoc in neighbors:
+          newPath = path + (newLoc,)
+          if newLoc in self.extractLocs:
+            finishedPaths.append(newPath)
+          else:
+            newPaths.append(newPath)
+      
+      paths = newPaths
+      particleFilter1.elapseTime()
+      particleFilter2.elapseTime()
+      
+    print("finishedPaths length: %s" % len(finishedPaths))
+    
+    if self.debug and self.red: print('eval time for checkIfOptimal %d: %.4f' % (self.index, time.time() - start))
     
     return True
 
-  def checkIfGhostAhead(self, gameState: GameState, action: str) -> bool:
-    return True
-
-  def checkIfGhost(self, isRed: bool, loc: tuple) -> bool:
-    if isRed: return loc[0] >= 16
-    else: return loc[0] <= 15
-
-  def getFeatures(self, gameState: GameState, action: str) -> dict[str: float]:
+  def getFeatures(self, gameState: GameState, action: str, nextState: GameState, pf1: any, pf2: any, optimal=True) -> util.Counter:
     """
     Returns a counter of features for the state
     """
     features = util.Counter()
-    successor = self.getSuccessor(gameState, action)
-    pacmanState = successor.getAgentState(self.index)
+    currentState = nextState.getAgentState(self.index)
     oldFoodList = self.getFood(gameState).asList()
-    foodList = self.getFood(successor).asList()
+    foodList = self.getFood(nextState).asList()
     features['collectedFood'] = 1 if len(foodList) > len(oldFoodList) else 0
-    features['lostFood'] = 1 if len(foodList) < len(oldFoodList) else 0
-    features['gotScore'] = 1 * pacmanState.numCarrying if successor.getScore() > gameState.getScore() else 0
-    features['winMove'] = 1 if successor.isOver() else 0
+    features['gotScore'] = 1 * currentState.numCarrying if nextState.getScore() > gameState.getScore() else 0
+    features['lostFood'] = 1 if len(foodList) < len(oldFoodList) and features['gotScore'] != 1 else 0
+    features['winMove'] = 1 if nextState.isOver() else 0
     
     features['onAttack'] = 0
-    if pacmanState.isPacman:
+    if currentState.isPacman:
         features['onAttack'] = 1
     
     oldPos = gameState.getAgentState(self.index).getPosition()
-    myPos = successor.getAgentState(self.index).getPosition()
+    myPos = nextState.getAgentState(self.index).getPosition()
+    
+    if self.debug and self.red and optimal: self.checkIfOptimal(oldPos, myPos, gameState, pf1, pf2)
     
     features['died'] = 1 if oldPos == self.spawnLocation else 0
-    if pacmanState.numCarrying > 0 and self.checkIfReturning(oldPos, myPos, gameState) and pacmanState.isPacman:
-      features['returningFoodToBase'] = 0.25 * pacmanState.numCarrying
-    elif pacmanState.numCarrying > 0 and not self.checkIfReturning(oldPos, myPos, gameState) and pacmanState.isPacman:
-      features['returningFoodToBase'] = -0.25 * pacmanState.numCarrying
-    else:
-      features['returningFoodToBase'] = 0
+    # if currentState.isPacman and optimal:
+    #   if self.checkIfOptimal(oldPos, myPos, gameState, pf1, pf2): features['onOptimalPath'] = 1 
+    #   else: features['onOptimalPath'] = -1 
+    # else:
+    #   features['onOptimalPath'] = 0
       
     #if self.debug and self.movesTaken > 0: print(str([location for location in self.particleFilter1.getApproximateLocations()]))
     
@@ -635,10 +675,10 @@ class FirstAgent(CaptureAgent):
     enemyLocs = {}
     for enemyIndex in self.getOpponents(gameState):
       if enemyIndex != None:
-        if self.particleFilter1.getTargetIndex() == enemyIndex:
-          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in self.particleFilter1.getGhostApproximateLocations().items()]
-        elif self.particleFilter2.getTargetIndex() == enemyIndex:
-          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in self.particleFilter2.getGhostApproximateLocations().items()]
+        if pf1.getTargetIndex() == enemyIndex:
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf1.getGhostApproximateLocations().items()]
+        elif pf2.getTargetIndex() == enemyIndex:
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf2.getGhostApproximateLocations().items()]
     
     oldMinEnemyDistance = 100
     oldAvgEnemyDistance = 0
@@ -657,9 +697,8 @@ class FirstAgent(CaptureAgent):
         if currentEnemyDistance < currentMinEnemyDistance:
           currentMinEnemyDistance = currentEnemyDistance
     
-    if (currentAvgEnemyDistance < oldAvgEnemyDistance) and pacmanState.isPacman:
+    if (currentAvgEnemyDistance < oldAvgEnemyDistance) and currentState.isPacman:
       features['closerToGhost'] = 1
-    elif (currentAvgEnemyDistance < oldAvgEnemyDistance): features['closerToGhost'] = 0.1
     else: features['closerToGhost'] = 0
         
     if action == Directions.STOP: features['stop'] = 1
@@ -674,17 +713,20 @@ class FirstAgent(CaptureAgent):
     #This feature's effect will be reduced
     return 404
   def collectedFoodReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
+    if self.debug and self.red and featureValue > 0: print("  event: Collected Food")
     return 0.1 if featureValue > 0 else -0.001
   def lostFoodReward(self, featureValue: float) -> float:
-    return -0.75 if featureValue > 0 else 0
+    if self.debug and self.red and featureValue > 0: print("  event: Lost Food")
+    return -2 if featureValue > 0 else 0
   def gotScoreReward(self, featureValue: float) -> float:
     if featureValue > 0:
-      #if (self.debug): print("returned to base with pellet")
+      if self.debug and self.redand and featureValue > 0: print(" event: Got Score")
       return featureValue
     else: 
       return -0.0025
   def winMoveReward(self, featureValue: float) -> float:
     if featureValue > 0:
+      if self.debug and self.redand: print("  event: Got Win Move")
       return 1
     else:
       return 0
@@ -694,7 +736,7 @@ class FirstAgent(CaptureAgent):
       return -2
     else:
       return 0
-  def returningFoodToBaseReward(self, featureValue: float) -> float:
+  def onOptimalPathReward(self, featureValue: float) -> float:
     if featureValue > 0:
       #print("returningFoodToBase")
       return 0.25
@@ -710,27 +752,56 @@ class FirstAgent(CaptureAgent):
   def closerToGhostReward(self, featuresAtState: dict[str: float], featureValue: float) -> float:
     if featureValue > 0 and featuresAtState['onAttack'] == 1: return -0.05 * featureValue
     else: return 0 
-  def walkedIntoGhostReward(self, featureValue: float) -> float:
-    #DUMBASS
-    return -1 if featureValue > 0 else 0
   def stopReward(self, featureValue: float) -> float:
     #STOP WASITNG TIME STOPPING NO TIME FOR STOP
     return -0.5 if featureValue > 0 else -0.01
   
 class SecondAgent(FirstAgent):
+
+  
   #PACMAN CHASER PROFESSIONAL
   def getOrSetDebug(self) -> str:
     if (self.red): self.debug = False
     return "SecondAgent"
   
-  def getFeatures(self, gameState, action):
-    features = util.Counter()
-    successor = self.getSuccessor(gameState, action)
+  def getMaxQ_SA(self, oldPos: tuple, state: GameState) -> float:
+    """
+      Returns max_action Q(state,action)
+      where the max is over legal actions.  Note that if
+      there are no legal actions, which is the case at the
+      terminal state, you should return a value of 0.0.
+    """
+    agentID = hash(state.getAgentPosition(self.index))
+    foodID = None
+    if (self.red): foodID = hash(state.getRedFood())
+    else: foodID = hash(state.getBlueFood())
+    currentArmBranch = hash((agentID, foodID))
     
+    legalActions = state.getLegalActions(self.index)
+    if not legalActions:
+      return 0.0  # Terminal state, no legal actions
+
+    maxQValue = max(self.getQValue(state, action) + self.optimisticConstant/(self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1) for action in legalActions)
+    return maxQValue
+  
+  def getQValue(self, gameState: GameState, action: str) -> float:
+    """
+    Computes a linear combination of features and feature weights
+    """
+    pf1 = copy.deepcopy(self.particleFilter1)
+    pf2 = copy.deepcopy(self.particleFilter2)
+    pf1.elapseTime()
+    pf2.elapseTime()
+    featureVector = self.getFeatures(gameState, action, self.getSuccessor(gameState, action), pf1, pf2) 
+    return featureVector * self.weights
+  
+  def getFeatures(self, gameState: GameState, action: str, nextState: GameState, pf1: any, pf2: any) -> util.Counter:
+    features = util.Counter()
+        
     oldPos = gameState.getAgentState(self.index).getPosition()
     oldState = gameState.getAgentState(self.index)
     
-    myState = successor.getAgentState(self.index)
+    myState = nextState.getAgentState(self.index)
     myPos = myState.getPosition()
     
     features['onDefense'] = 1
@@ -744,10 +815,10 @@ class SecondAgent(FirstAgent):
     enemyLocs = {}
     for enemyIndex in self.getOpponents(gameState):
       if enemyIndex != None:
-        if self.particleFilter1.getTargetIndex() == enemyIndex:
-          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in self.particleFilter1.getPacmanApproximateLocations().items()]
-        elif self.particleFilter2.getTargetIndex() == enemyIndex:
-          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in self.particleFilter2.getPacmanApproximateLocations().items()]
+        if pf1.getTargetIndex() == enemyIndex:
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf1.getPacmanApproximateLocations().items()]
+        elif pf2.getTargetIndex() == enemyIndex:
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf2.getPacmanApproximateLocations().items()]
     
     oldMinEnemyDistance = 100
     oldAvgEnemyDistance = 0
@@ -850,7 +921,7 @@ class ParticleFilter():
   A particle filter for approximately tracking a single ghost.
   """
 
-  def __init__(self, gameState: GameState, isRed: bool, index: int, numParticles: int=300) -> None:
+  def __init__(self, gameState: GameState, isRed: bool, index: int, numParticles: int) -> None:
     self.numParticles = numParticles
     self.beliefs = util.Counter()
     self.targetIndex = index

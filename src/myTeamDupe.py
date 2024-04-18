@@ -3,7 +3,7 @@ from myTeam import SecondAgent
 import util
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'FirstAgentDupe', second = 'SecondAgentDupe'):
+               first = 'FirstAgentDupe', second = 'FirstAgentDupe'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
