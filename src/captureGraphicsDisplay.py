@@ -630,7 +630,7 @@ class PacmanGraphics:
     if clear:
       self.clearDebug()
       self.expandedCells = []
-
+      
     for k, cell in enumerate(cells):
        screenPos = self.to_screen( cell)
        cellColor = formatColor(*color)
