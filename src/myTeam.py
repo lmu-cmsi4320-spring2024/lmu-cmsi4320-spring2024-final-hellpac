@@ -313,7 +313,7 @@ class CaptureAgent(Agent):
             self._distributions = dists  # These can be read by pacclient.py
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'FirstAgent', second = 'SecondAgent'):
+               first = 'SecondAgent', second = 'FirstAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -462,7 +462,7 @@ class FirstAgent(CaptureAgent):
         self.loadGraveyard()
     
   def getOrSetDebug(self) -> str:
-    if (self.index == 0): self.debug = False
+    if (self.red): self.debug = True
     return "FirstAgent"
   
   def loadWeights(self) -> None:
@@ -565,6 +565,14 @@ class FirstAgent(CaptureAgent):
         return index
     print("Feature: %s not found. Returning 0" % x)
     return 0
+
+  def clamp(self, n, min, max): 
+    if n < min: 
+      return min
+    elif n > max: 
+      return max
+    else: 
+      return n 
   
   def chooseAction(self, gameState: GameState) -> None:
     """
@@ -573,12 +581,13 @@ class FirstAgent(CaptureAgent):
     
     if self.debug and self.red: start = time.time()
     
-    
-    
     #Update Particle Filter to account for observed enemies
     nearbyEnemies = {}
     for opponent in self.getOpponents(gameState):
       nearbyEnemies[opponent] = gameState.getAgentState(opponent)   
+      
+    self.particleFilter1.noAgentNear(gameState.getAgentPosition(self.index))
+    self.particleFilter2.noAgentNear(gameState.getAgentPosition(self.index))
       
     for index, enemy in nearbyEnemies.items():
       enemyLoc = enemy.getPosition()
@@ -589,27 +598,29 @@ class FirstAgent(CaptureAgent):
           self.particleFilter2.foundAgent(enemyLoc)
     
     #Update Particle Filter for noisy readings
-    if self.initalizePF:
-      self.particleFilter1.elapseTime()
-      self.particleFilter2.elapseTime()
-      noisyReadings = [observed for observed in gameState.getAgentDistances()]
-      self.particleFilter1.observe(noisyReadings[self.particleFilter1.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
-      self.particleFilter2.observe(noisyReadings[self.particleFilter2.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
+    self.particleFilter1.elapseTime()
+    self.particleFilter2.elapseTime()
+    
+    noisyReadings = [observed for observed in gameState.getAgentDistances()]
+    self.particleFilter1.observe(noisyReadings[self.particleFilter1.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
+    self.particleFilter2.observe(noisyReadings[self.particleFilter2.getTargetIndex()], gameState, gameState.getAgentPosition(self.index))
     
     if self.debug and self.red:
+      multipleConstant = 2
       first = True
-      approxLocs = self.particleFilter1.getApproximateLocations()
+      approxLocs = self.particleFilter1.getApproximateLocations(50)
       
       for loc in approxLocs:
         if first:
-          self.debugDraw(loc, [0, 0, approxLocs[loc]], True)
+          self.debugDraw(loc, [0, 0, self.clamp(approxLocs[loc] * multipleConstant, 0, 1)], True)
           first = False
         else:
-          self.debugDraw(loc, [0, 0, approxLocs[loc]], False)
+          if self.clamp(approxLocs[loc] * multipleConstant, 0, 1) > 0.1:
+            self.debugDraw(loc, [0, 0, self.clamp(approxLocs[loc] * multipleConstant, 0, 1)], False)
 
-      approxLocs = self.particleFilter2.getApproximateLocations()
+      approxLocs = self.particleFilter2.getApproximateLocations(50)
       for loc in approxLocs:
-        self.debugDraw(loc, [0, approxLocs[loc], approxLocs[loc]], False)
+        self.debugDraw(loc, [0, self.clamp(approxLocs[loc] * multipleConstant, 0, 1), self.clamp(approxLocs[loc] * multipleConstant, 0, 1)], False)
     
     if not self.debug and self.red: print("\n\n\n-----------------------------------Move %s-----------------------------------\n"% self.movesTaken)
     
@@ -995,13 +1006,13 @@ class FirstAgent(CaptureAgent):
     return -2 if featureValue > 0 else 0
   def gotScoreReward(self, featureValue: float) -> float:
     if featureValue > 0:
-      if self.debug and self.redand and featureValue > 0: print(" event: Got Score")
+      if self.debug and self.red and featureValue > 0: print(" event: Got Score")
       return featureValue
     else: 
       return -0.0025
   def winMoveReward(self, featureValue: float) -> float:
     if featureValue > 0:
-      if self.debug and self.redand: print("  event: Got Win Move")
+      if self.debug and self.red: print("  event: Got Win Move")
       return 1
     else:
       return 0
@@ -1036,7 +1047,7 @@ class SecondAgent(FirstAgent):
   
   #PACMAN CHASER PROFESSIONAL
   def getOrSetDebug(self) -> str:
-    if (self.red): self.debug = True
+    if (self.red): self.debug = False
     return "SecondAgent"
   
   def getMaxQ_SA(self, oldPos: tuple, state: GameState) -> float:
@@ -1107,23 +1118,6 @@ class SecondAgent(FirstAgent):
                                       if (self.red and loc[0] <= 15) or (not self.red and loc[0] >= 16) else 0 
                                       for loc, prob in enemyTwoLocs])
       features['closerToPacman'] = oldEnemyTwoAvgDist - enemyTwoAvgDist if (enemyTwoAvgDist < oldEnemyTwoAvgDist) else 0
-    
-    
-    
-    # for enemyIndex in enemyLocs:
-    #   for locProbTuple in enemyLocs[enemyIndex]:
-    #     if (self.red and (locProbTuple[0][0] <= 15)) or (not self.red and (locProbTuple[0][0] >= 16)):
-    #       oldEnemyDistance = self.distancer.getDistance(oldPos, locProbTuple[0])
-    #       oldAvgEnemyDistance += oldEnemyDistance * locProbTuple[1] /2
-          
-    #       if oldEnemyDistance < oldMinEnemyDistance:
-    #         oldMinEnemyDistance = oldEnemyDistance
-          
-    #       currentEnemyDistance = self.distancer.getDistance(myPos, locProbTuple[0])
-    #       currentAvgEnemyDistance += currentEnemyDistance * locProbTuple[1] /2
-    #       if currentEnemyDistance < currentMinEnemyDistance:
-    #         currentMinEnemyDistance = currentEnemyDistance
-    
     
     center = (15, 7) if self.red else (16, 7)
     oldCenterDistance = self.distancer.getDistance(oldPos, center)
@@ -1217,6 +1211,9 @@ class ParticleFilter():
     self.legalPositions = None
     self.distancer = None
     
+    self.firstObservation = None
+    self.firstBelief = None
+    
   def initalizeGivenGameState(self, gameState: GameState) -> None:
     self.spawnLoc = gameState.getInitialAgentPosition(self.targetIndex)
     self.walls = gameState.getWalls()
@@ -1238,10 +1235,11 @@ class ParticleFilter():
     newLocations = Actions.getLegalNeighbors(enemyLocation, self.walls)
     dist = util.Counter()
     possibleNumberOfMoves = len(newLocations)
-    stopProb = (possibleNumberOfMoves**2 -1)/100
-    avgMoveProb = (100 - stopProb)/(possibleNumberOfMoves -1)
+    moveProb = 99
+    if possibleNumberOfMoves > 0:
+      moveProb = 100/possibleNumberOfMoves
     for location in newLocations:
-      dist[location] = avgMoveProb
+      dist[location] = moveProb
     return dist
 
   def initializeUniformly(self) -> None:
@@ -1265,20 +1263,45 @@ class ParticleFilter():
         
     return dist
   
+  def getTriangulationObservation(self, noisyDistance: float, gameState: GameState, myPos: tuple) -> dict[int: float]:
+    dist = {}
+    for possibleEnemyLoc in self.legalPositions:
+      distanceToLocA = self.distancer.getDistance(possibleEnemyLoc, myPos)
+      distanceToLocB = self.distancer.getDistance(possibleEnemyLoc, self.firstObservation[2])
+      dist[(distanceToLocA, distanceToLocB)] = (gameState.getDistanceProb(distanceToLocA, noisyDistance) + self.firstObservation[1].getDistanceProb(distanceToLocB, self.firstObservation[0]))/2
+    
+    return dist
+  
   def observe(self, noisyDistance: float, gameState: GameState, myPos: tuple[int]) -> dict[tuple[int]: float]:
     """
     Update beliefs based on the given distance observation.
     """
-    emissionModel = self.getObservationDistribution(noisyDistance, gameState, myPos)
-    
-    if self.beliefs.totalCount() == 0:
-      self.initializeUniformly()
+    if self.firstObservation == None:
+      self.firstObservation = (noisyDistance, gameState, myPos)
+      self.firstBelief = self.beliefs.copy()
+      
+      emissionModel = self.getObservationDistribution(noisyDistance, gameState, myPos)
+      
+      if self.firstBelief.totalCount() == 0:
+        self.initializeUniformly()
+      
+      for position in self.firstBelief.keys():
+        self.firstBelief[position] = emissionModel[self.distancer.getDistance(position, myPos)] * self.firstBelief[position]
+      
+      self.firstBelief.normalize()
+    else:
+      emissionModel = self.getTriangulationObservation(noisyDistance, gameState, myPos)
+      if self.beliefs.totalCount() == 0:
+        self.initializeUniformly()
+      
+      for position in self.firstBelief.keys():
+        self.beliefs[position] = emissionModel[(self.distancer.getDistance(position, myPos), self.distancer.getDistance(position, self.firstObservation[2]))] * self.beliefs[position]
+      
+      self.beliefs.normalize()
+      
+      self.firstObservation = None
+      self.firstBelief = None
         
-    for position in self.beliefs.keys():
-      self.beliefs[position] = emissionModel[self.distancer.getDistance(position, myPos)] * self.beliefs[position]
-    
-    self.beliefs.normalize()
-    return self.beliefs
   
   def killedAgent(self) -> None:
     """
@@ -1300,11 +1323,13 @@ class ParticleFilter():
     """
     Update beliefs for when player's personal detection does not detect enemy
     """
-    nearbyTiles = []
-    
+    nearbyTiles = [(playerLocation[0] + a - 5, playerLocation[1] + b - 5)
+                   for a in range(11) for b in range (11)
+                   if abs(a - 5) + abs(b - 5) <= 5]
     
     for loc in self.beliefs:
-      if loc in nearbyTiles: self.beliefs[loc] = 0
+      if loc in nearbyTiles: 
+        self.beliefs[loc] = 0
     
   def elapseTime(self) -> None:
     """
@@ -1339,8 +1364,13 @@ class ParticleFilter():
     """
     Return the approximated locations in dict{location: probability}. Put an int into count to change how much locations you want (default is 10)
     """
+    if self.firstObservation == None:
+      beliefs = self.beliefs
+    else:
+      beliefs = self.firstBelief
+    
     locationArray = []
-    for location, prob in self.beliefs.items():
+    for location, prob in beliefs.items():
       if location != None and prob != None and prob > 0:
         locationArray.append(HeapNode(prob, location))
           
@@ -1355,8 +1385,13 @@ class ParticleFilter():
     """
     Return the approximated locations when the enemy is in Pacman State in dict{location: probability}. Put an int into count to change how much locations you want (default is 10)
     """
+    if self.firstObservation == None:
+      beliefs = self.beliefs
+    else:
+      beliefs = self.firstBelief
+      
     locationArray = []
-    for location, prob in self.beliefs.items():
+    for location, prob in beliefs.items():
       if location != None and prob != None and prob > 0:
         if (not self.red and location[0] >= 16) or (self.red and location[0] <= 15): locationArray.append(HeapNode(prob, location))
     
@@ -1366,13 +1401,19 @@ class ParticleFilter():
       if node.prob > 0: topLocs[node.loc] = node.prob
       
     return topLocs
+    
   
   def getGhostApproximateLocations(self, count: int = 50) -> util.Counter():
     """
     Return the approximated locations when the enemy is in Ghost State in dict{location: probability}. Put an int into count to change how much locations you want (default is 10)
     """
+    if self.firstObservation == None:
+      beliefs = self.beliefs
+    else:
+      beliefs = self.firstBelief
+    
     locationArray = []
-    for location, prob in self.beliefs.items():
+    for location, prob in beliefs.items():
       if location != None and prob != None and prob > 0:
         if (self.red and location[0] >= 16) or (not self.red and location[0] <= 15): locationArray.append(HeapNode(prob, location))
     
