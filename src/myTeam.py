@@ -56,7 +56,7 @@ INITALREGULARGRAVEYARD = {"FirstAgent": util.Counter(dict[str: int]()), "SecondA
 
 MOVES = ["North", "South", "East", "West", "Stop"]
 
-STARINGEPSILON = 0.33
+STARINGEPSILON = 0.95
 
 # Any other constants used for your training (learning rate, discount, etc.)
 # should be specified here
@@ -418,14 +418,14 @@ class FirstAgent(CaptureAgent):
     
     self.discount=0.9
     self.learningRate=0.01
-    self.epsilon = STARINGEPSILON
-    
+
     self.livingReward = -0.1
     
     self.useTSChance = 0
     self.isTraining = training
     
     self.movesTaken = 0
+    self.gameCount = 1
     self.initalFoodCount = len(self.getFood(gameState).asList())
     self.spawnLocation = gameState.getAgentPosition(self.index)
     self.enemyIndices = gameState.getBlueTeamIndices() if self.red else gameState.getRedTeamIndices()
@@ -444,6 +444,8 @@ class FirstAgent(CaptureAgent):
       self.extractLocs = [(15, 1), (15, 2), (15, 4), (15, 5), (15, 7), (15, 8), (15, 11), (15, 12), (15, 13), (15, 14)]
     else:
       self.extractLocs = [(16, 1), (16, 2), (16, 3), (16, 4), (16, 7), (16, 8), (16, 10), (16, 11), (16, 13), (16, 14)]
+    
+    
     
     # legalPositions = [(0, 0)]
     # numOfParticles = 1000
@@ -738,8 +740,6 @@ class FirstAgent(CaptureAgent):
       self.updateWeights()
       #Temp saves graveyard into json file (change this later)
       self.updateGraveyard()
-         
-      #if self.debug: print("Belief Distribution: \n%s\n" % str(self.particleFilter.getBeliefDistribution()))
       
       #Update weights and TS
       if (self.previousActionMemory != None):
@@ -753,6 +753,7 @@ class FirstAgent(CaptureAgent):
       if (self.red): foodID = hash(gameState.getRedFood())
       else: foodID = hash(gameState.getBlueFood())
       currentArmBranch = hash((agentID, foodID))
+      
       
       #Thompson Sampling when training
       if (self.useTSChance != 0):
@@ -779,7 +780,7 @@ class FirstAgent(CaptureAgent):
               chosenActionIndex = actionIndex
               
         action = MOVES[chosenActionIndex]
-      elif random.random() < self.epsilon:
+      elif random.random() < STARINGEPSILON ** self.gameCount:
         action = self.getRandomAction(gameState)
         if self.red and self.debug: print("\nGot Random Action: %s" % action)
       else:
@@ -844,14 +845,11 @@ class FirstAgent(CaptureAgent):
     else: foodID = hash(state.getBlueFood())
     currentArmBranch = hash((agentID, foodID))
     
-    #optimalValuesFeature = self.getOptimalValues(oldPos, state.getAgentPosition(self.index), state, self.particleFilter1, self.particleFilter2)
-    optimalValuesFeature = util.Counter()
-    
     legalActions = state.getLegalActions(self.index)
     if not legalActions:
       return 0.0  # Terminal state, no legal actions
 
-    maxQValue = max(self.getQValue(state, action) + optimalValuesFeature[action] * self.weights['onOptimalPath'] + self.optimisticConstant/(self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1) for action in legalActions)
+    maxQValue = max(self.getQValue(state, action) + self.optimisticConstant/(self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1) for action in legalActions)
     return maxQValue
   
   def update(self, state: GameState, action: str, nextState: GameState, rewards: dict[str: float], featureDict: util.Counter):
@@ -1062,34 +1060,25 @@ class FirstAgent(CaptureAgent):
       features['closerToFood'] = 0 if newMinFoodDistance >= oldMinFoodDistance else 1
       # features['distanceToFood'] = newMinFoodDistance
     
+    opponents = self.getOpponents(gameState)
     enemyLocs = {}
-    for enemyIndex in self.getOpponents(gameState):
+    for enemyIndex in opponents:
       if enemyIndex != None:
         if pf1.getTargetIndex() == enemyIndex:
           enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf1.getGhostApproximateLocations().items()]
         elif pf2.getTargetIndex() == enemyIndex:
           enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf2.getGhostApproximateLocations().items()]
     
-    oldMinEnemyDistance = 100
-    oldAvgEnemyDistance = 0
-    currentMinEnemyDistance = 100
-    currentAvgEnemyDistance = 0
+    distanceIncreasePercent = 0
     for enemyIndex in enemyLocs:
       for locProbTuple in enemyLocs[enemyIndex]:
         oldEnemyDistance = self.distancer.getDistance(oldPos, locProbTuple[0])
-        oldAvgEnemyDistance += oldEnemyDistance * locProbTuple[1] /2
-        
-        if oldEnemyDistance < oldMinEnemyDistance:
-          oldMinEnemyDistance = oldEnemyDistance
-        
         currentEnemyDistance = self.distancer.getDistance(myPos, locProbTuple[0])
-        currentAvgEnemyDistance += currentEnemyDistance * locProbTuple[1] /2
-        if currentEnemyDistance < currentMinEnemyDistance:
-          currentMinEnemyDistance = currentEnemyDistance
+        
+        if currentEnemyDistance < oldEnemyDistance:
+          distanceIncreasePercent += locProbTuple[1] /2
     
-    if (currentAvgEnemyDistance < oldAvgEnemyDistance) and currentState.isPacman:
-      features['closerToGhost'] = 1
-    else: features['closerToGhost'] = 0
+    features['closerToGhost'] = distanceIncreasePercent
         
     if action == Directions.STOP: features['stop'] = 1
     else: features['stop'] = 0
@@ -1098,6 +1087,9 @@ class FirstAgent(CaptureAgent):
     # self.particleFilter
     
     return features
+  
+  def final(self, gameState: GameState):
+    self.gameCount += 1
   
   def onAttackReward(self) -> float:
     #This feature's effect will be reduced
@@ -1147,34 +1139,10 @@ class FirstAgent(CaptureAgent):
     return -0.5 if featureValue > 0 else -0.01
   
 class SecondAgent(FirstAgent):
-  
-  
-
-  
   #PACMAN CHASER PROFESSIONAL
   def getOrSetDebug(self) -> str:
     if (self.red): self.debug = False
     return "SecondAgent"
-  
-  def getMaxQ_SA(self, oldPos: tuple, state: GameState) -> float:
-    """
-      Returns max_action Q(state,action)
-      where the max is over legal actions.  Note that if
-      there are no legal actions, which is the case at the
-      terminal state, you should return a value of 0.0.
-    """
-    agentID = hash(state.getAgentPosition(self.index))
-    foodID = None
-    if (self.red): foodID = hash(state.getRedFood())
-    else: foodID = hash(state.getBlueFood())
-    currentArmBranch = hash((agentID, foodID))
-    
-    legalActions = state.getLegalActions(self.index)
-    if not legalActions:
-      return 0.0  # Terminal state, no legal actions
-
-    maxQValue = max(self.getQValue(state, action) + self.optimisticConstant/(self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1) for action in legalActions)
-    return maxQValue
   
   def getQValue(self, gameState: GameState, action: str) -> float:
     """
@@ -1215,15 +1183,31 @@ class SecondAgent(FirstAgent):
                                       for loc, prob in enemyTwoLocs])
     
     if enemyOneAvgDist < enemyTwoAvgDist or enemyTwoAvgDist == 0:
-      oldEnemyOneAvgDist = sum([prob * self.distancer.getDistance(oldPos, loc) 
-                                      if (self.red and loc[0] <= 15) or (not self.red and loc[0] >= 16) else 0 
-                                      for loc, prob in enemyOneLocs])
-      features['closerToPacman'] = oldEnemyOneAvgDist - enemyOneAvgDist if (enemyOneAvgDist < oldEnemyOneAvgDist) else 0
+      # oldEnemyOneAvgDist = sum([prob * self.distancer.getDistance(oldPos, loc) 
+      #                                 if (self.red and loc[0] <= 15) or (not self.red and loc[0] >= 16) else 0 
+      #                                 for loc, prob in enemyOneLocs])
+      distanceIncreasePercent = 0
+      for locProbTuple in enemyOneLocs:
+        if locProbTuple != None:
+          oldEnemyDistance = self.distancer.getDistance(oldPos, locProbTuple[0])
+          currentEnemyDistance = self.distancer.getDistance(myPos, locProbTuple[0])
+          
+          if currentEnemyDistance < oldEnemyDistance:
+            distanceIncreasePercent += locProbTuple[1]
+      features['closerToPacman'] = distanceIncreasePercent
     elif enemyTwoAvgDist < enemyOneAvgDist or enemyOneAvgDist == 0:
-      oldEnemyTwoAvgDist = sum([prob * self.distancer.getDistance(oldPos, loc) 
-                                      if (self.red and loc[0] <= 15) or (not self.red and loc[0] >= 16) else 0 
-                                      for loc, prob in enemyTwoLocs])
-      features['closerToPacman'] = oldEnemyTwoAvgDist - enemyTwoAvgDist if (enemyTwoAvgDist < oldEnemyTwoAvgDist) else 0
+      # oldEnemyTwoAvgDist = sum([prob * self.distancer.getDistance(oldPos, loc) 
+      #                                 if (self.red and loc[0] <= 15) or (not self.red and loc[0] >= 16) else 0 
+      #                                 for loc, prob in enemyTwoLocs])
+      distanceIncreasePercent = 0
+      for locProbTuple in enemyTwoLocs:
+        if locProbTuple != None:
+          oldEnemyDistance = self.distancer.getDistance(oldPos, locProbTuple[0])
+          currentEnemyDistance = self.distancer.getDistance(myPos, locProbTuple[0])
+          
+          if currentEnemyDistance < oldEnemyDistance:
+            distanceIncreasePercent += locProbTuple[1]
+      features['closerToPacman'] = distanceIncreasePercent
     
     features['walkedIntoGhost'] = 0
     
@@ -1265,49 +1249,6 @@ class SecondAgent(FirstAgent):
   def stopReward(self, featureValue: float) -> float:
     #STOP WASITNG TIME STOPPING NO TIME FOR STOP
     return -0.5 if featureValue > 0 else 0
-
-class DummyAgent(CaptureAgent):
-  """
-  A Dummy agent to serve as an example of the necessary agent structure.
-  You should look at baselineTeam.py for more details about how to
-  create an agent as this is the bare minimum.
-  """
-
-  def registerInitialState(self, gameState):
-    """
-    This method handles the initial setup of the
-    agent to populate useful fields (such as what team
-    we're on).
-    A distanceCalculator instance caches the maze distances
-    between each pair of positions, so your agents can use:
-    self.distancer.getDistance(p1, p2)
-    IMPORTANT: This method may run for at most 15 seconds.
-    """
-
-    '''
-    Make sure you do not delete the following line. If you would like to
-    use Manhattan distances instead of maze distances in order to save
-    on initialization time, please take a look at
-    CaptureAgent.registerInitialState in captureAgents.py.
-    '''
-    CaptureAgent.registerInitialState(self, gameState)
-
-    '''
-    Your initialization code goes here, if you need any.
-    '''
-
-
-  def chooseAction(self, gameState):
-    """
-    Picks among actions randomly.
-    """
-    actions = gameState.getLegalActions(self.index)
-
-    '''
-    You should change this in your own agent.
-    '''
-
-    return random.choice(actions)
 
 #Helper Classes
 
