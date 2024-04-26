@@ -1,9 +1,10 @@
 from myTeam import FirstAgent
 from myTeam import SecondAgent
+from myTeam import ParticleFilter
 import util
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'FirstAgentDupe', second = 'FirstAgentDupe'):
+               first = 'SecondAgentDupe', second = 'FirstAgentDupe'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -19,14 +20,26 @@ def createTeam(firstIndex, secondIndex, isRed,
   """
 
   # The following line is an example only; feel free to change it.
-  return [eval(first)(firstIndex), eval(second)(secondIndex)]
+  print(isRed)
+  print(firstIndex)
+  print(secondIndex)
+  if firstIndex == 1 or firstIndex == 3:
+    enemyIndex = (0, 2)
+  else:
+    enemyIndex = (1, 3)
+  
+  particleFilter1 = ParticleFilter(isRed, enemyIndex[0])
+  particleFilter2 = ParticleFilter(isRed, enemyIndex[1])
+  return [eval(first)(firstIndex, particleFilter1, particleFilter2, True), eval(second)(secondIndex, particleFilter1, particleFilter2, False)]
 
 class FirstAgentDupe(FirstAgent):
   def getOrSetDebug(self) -> str:
     self.debug = False
+    self.showNoise = False
     return "FirstAgentDupe"
 
 class SecondAgentDupe(SecondAgent):
   def getOrSetDebug(self) -> str:
     self.debug = False
+    self.showNoise = False
     return "SecondAgentDupe"
