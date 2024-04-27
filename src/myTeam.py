@@ -802,7 +802,7 @@ class FirstAgent(CaptureAgent):
         self.maxEvalTime = timeTaken
         
       avgEvalTime = sum(self.averageEvalTime)/len(self.averageEvalTime)
-      print('avg eval time: %s' % avgEvalTime)
+      print('\navg eval time: %s' % avgEvalTime)
       print('max eval time: %s' % self.maxEvalTime)
     
     return action
@@ -882,18 +882,25 @@ class FirstAgent(CaptureAgent):
     maxFutureActionQ_sa = self.getMaxQ_SA(nextState)
     q_sa = self.getQValue(state, action)
     
+    reward = rewards[0] + rewards[1]
+    
     featureDifference = util.Counter()
     
-    for feature in rewards:
+    debugReward = util.Counter()
+    
+    for feature in self.featuresList:
       if feature in self.postiveFeatures:
         featureDifference[feature] = (rewards[0] + (self.discount * maxFutureActionQ_sa)) - q_sa
+        debugReward[feature] = rewards[0]
       elif feature in self.negativeFeatures:
         featureDifference[feature] = (rewards[1] + (self.discount * maxFutureActionQ_sa)) - q_sa
+        debugReward[feature] = rewards[1]
         
     if self.red and self.debug: print("\nUpdating Features")
     
     for feature in featureDict.keys():
-      if self.red and self.debug and abs(self.learningRate * featureDifference[feature] * featureDict[feature]) > 0: print("%s: %s, %s Change after update: %s\n              = %s * %s * %s\n                            featureDiff = (%s + (%s * %s)) - %s" % (feature, featureDict[feature], feature, str(self.learningRate * featureDifference[feature] * featureDict[feature]), self.learningRate, featureDifference[feature], featureDict[feature], rewards[feature], self.discount, maxFutureActionQ_sa, q_sa))
+      if self.red and self.debug and featureDict[feature] > 0: 
+        print("\n%s: %s, %s Change after update: %s\n              = %s * %s * %s\n                            featureDiff = (%s + (%s * %s)) - %s" % (feature, featureDict[feature], feature, str(self.learningRate * featureDifference[feature] * featureDict[feature]), self.learningRate, featureDifference[feature], featureDict[feature], debugReward[feature], self.discount, maxFutureActionQ_sa, q_sa))
       self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature])
     
     agentID = hash(state.getAgentPosition(self.index))
@@ -1272,24 +1279,17 @@ class SecondAgent(FirstAgent):
           if currentEnemyDistance < oldEnemyDistance:
             distanceIncreasePercent += locProbTuple[1]
       features['closerToPacman'] = distanceIncreasePercent
+
+    # print("Agent Position %s: %s\nAgent Position %s: %s" % (self.enemyIndices[0], gameState.getAgentPosition(self.enemyIndices[0]), self.enemyIndices[0], gameState.getAgentPosition(self.enemyIndices[0])))
     
-    if len(enemyOneLocs) == 1:
-      if enemyOneLocs[0][0] == myPos and ((self.red and myPos[0] <= 15) or (not self.red and myPos[0] >= 16)):
-        print("ate ghost")
-        features['ateGhost'] = 1
-    elif len(enemyTwoLocs) == 1:
-      if enemyTwoLocs[0][0] == myPos and ((self.red and myPos[0] <= 15) or (not self.red and myPos[0] >= 16)):
-        features['ateGhost'] = 1
-        print("ate ghost")
-      
+    if (gameState.getAgentPosition(self.enemyIndices[0]) == myPos and ((self.red and myPos[0] <= 15) or (not self.red and myPos[0] >= 16))) or (gameState.getAgentPosition(self.enemyIndices[1]) == myPos and ((self.red and myPos[0] <= 15) or (not self.red and myPos[0] >= 16))):
+      features['ateGhost'] = 1
+
     center = (15, 7) if self.red else (16, 7)
     oldCenterDistance = self.distancer.getDistance(oldPos, center)
     newCenterDistance = self.distancer.getDistance(myPos, center)
     
     features['closerToCenter'] = 0.01 if newCenterDistance < oldCenterDistance else 0
-        
-    if action == Directions.STOP: features['stop'] = 1
-    else: features['stop'] = 0
 
     return features
   
@@ -1316,6 +1316,11 @@ class SecondAgent(FirstAgent):
     oldPos = state.getAgentPosition(self.index)
     newPos = nextState.getAgentPosition(self.index)
     
+    if nextState.getAgentPosition(self.index) == state.getAgentPosition(self.enemyIndices[0]) or state.getAgentPosition(self.index) == nextState.getAgentPosition(self.enemyIndices[1]):
+      closerToGhost = 1
+    else:
+      closerToGhost = 0
+    
     enemyLocs = {}
     opponents = self.getOpponents(nextState)
     for enemyIndex in opponents:
@@ -1341,13 +1346,11 @@ class SecondAgent(FirstAgent):
     
     if highestProb > 0 and nextState.getAgentState(self.index).isPacman:
       if mostProbableDistance <= 1:
-        closerToGhost = 1
+        closerToGhost += 1
       else:
-        closerToGhost = distanceIncreasePercent * 0.25 * (-1/3.5 * math.log(mostProbableDistance, 3) +1)        
+        closerToGhost += distanceIncreasePercent * 0.25 * (-1/3.5 * math.log(mostProbableDistance, 3) +1)        
     
     positiveReward = closerToGhost
-    
-    # if nextState.getAgentPosition(self.index) == nextState.
     
     return positiveReward - self.livingReward if positiveReward - self.livingReward > 0 else 0
   
