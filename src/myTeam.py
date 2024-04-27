@@ -736,7 +736,7 @@ class FirstAgent(CaptureAgent):
     Picks among the actions with the highest Q(s,a).
     """
     
-    time.time()
+    start = time.time()
     
     if self.previousActionMemory != None:
       self.updateParticleFilters(gameState)
