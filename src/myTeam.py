@@ -465,8 +465,8 @@ class FirstAgent(CaptureAgent):
     
   def getOrSetDebug(self) -> str:
     if (self.red): 
-      self.debug = True
-      self.showNoise = True
+      self.debug = False
+      self.showNoise = False
     return "FirstAgent"
   
   def getFeatureList(self) -> list[str]:
@@ -970,6 +970,10 @@ class FirstAgent(CaptureAgent):
       self.updateWeights()
       #Temp saves graveyard into json file (change this later)
       self.updateGraveyard()
+      
+      avgEvalTime = sum(self.averageEvalTime)/(len(self.averageEvalTime) if len(self.averageEvalTime) > 0 else 1)
+      print('\navg eval time: %s' % avgEvalTime)
+      print('max eval time: %s' % self.maxEvalTime)
 
   def getFeatures(self, gameState: GameState, action: str) -> util.Counter:
     """
@@ -1082,7 +1086,7 @@ class FirstAgent(CaptureAgent):
       
       distanceDelta = oldDistanceToCapsule - newDistanceToCapsule
       
-    features['closerToCapsule'] = 1 if features['collectedCapsule'] == 1 else distanceDelta
+      features['closerToCapsule'] = 1 if features['collectedCapsule'] == 1 else distanceDelta
     
     features['gotScore'] = nextAgentState.numCarrying/len(foodList) if nextState.getScore() > gameState.getScore() else 0
     
@@ -1093,10 +1097,8 @@ class FirstAgent(CaptureAgent):
     oldPos = state.getAgentPosition(self.index)
     newPos = nextState.getAgentPosition(self.index)
     
-    if self.red:
-      isDead = -2 if newPos == self.spawnLocation and oldPos[0] > 15 else 0
-    if not self.red:
-      isDead = -2 if newPos == self.spawnLocation and oldPos[0] < 16 else 0
+    if (oldPos == self.spawnLocation and self.movesTaken > 20) or (newPos == self.spawnLocation and ((self.red and oldPos[0] > 15) or (not self.red and oldPos[0] < 16))):
+      isDead = -1
     
     closerToGhost = 0
     
@@ -1303,7 +1305,7 @@ class SecondAgent(FirstAgent):
     if not self.red:
       isDead = -2 if newPos == self.spawnLocation and oldPos[0] < 16 else 0
     
-    gotOffDefense = -1 if state.getAgentState(self.index).isPacman and not nextState.getAgentState(self.index).isPacman else 0
+    gotOffDefense = -2 if nextState.getAgentState(self.index).isPacman and not state.getAgentState(self.index).isPacman else 0
     
     negativeReward = isDead + gotOffDefense
     if self.debug and self.red: print("negativeReward = isDead + gotOffDefense\n    %s = %s + %s" % (negativeReward, isDead, gotOffDefense))
@@ -1317,9 +1319,9 @@ class SecondAgent(FirstAgent):
     newPos = nextState.getAgentPosition(self.index)
     
     if nextState.getAgentPosition(self.index) == state.getAgentPosition(self.enemyIndices[0]) or state.getAgentPosition(self.index) == nextState.getAgentPosition(self.enemyIndices[1]):
-      closerToGhost = 1
+      eatGhost = 1
     else:
-      closerToGhost = 0
+      eatGhost = 0
     
     enemyLocs = {}
     opponents = self.getOpponents(nextState)
@@ -1346,11 +1348,17 @@ class SecondAgent(FirstAgent):
     
     if highestProb > 0 and nextState.getAgentState(self.index).isPacman:
       if mostProbableDistance <= 1:
-        closerToGhost += 1
+        closerToGhost = 1
       else:
-        closerToGhost += distanceIncreasePercent * 0.25 * (-1/3.5 * math.log(mostProbableDistance, 3) +1)        
+        closerToGhost = distanceIncreasePercent * 0.25 * (-1/3.5 * math.log(mostProbableDistance, 3) +1)        
     
-    positiveReward = closerToGhost
+    center = (15, 7) if self.red else (16, 7)
+    oldCenterDistance = self.distancer.getDistance(oldPos, center)
+    newCenterDistance = self.distancer.getDistance(newPos, center)
+    
+    closerToCenter = 0.001 if newCenterDistance < oldCenterDistance else 0
+    
+    positiveReward = closerToGhost + eatGhost + closerToCenter
     
     return positiveReward - self.livingReward if positiveReward - self.livingReward > 0 else 0
   
