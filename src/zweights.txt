@@ -1,5 +1,7 @@
 Default
 
+{"FirstAgent": {"died": 0, "collectedFood": 0, "closerToGhost": 0, "closerToExtraction": 0, "closerToUnguardedFood": 0, "collectedCapsule": 0, "closerToCapsule": 0, "gotScore": 0}, "SecondAgent": {"gotOffDefense": 0, "died": 0, "closerToPacman": 0, "closerToCenter": 0, "ateGhost": 0}}
+
 {"FirstAgent": {"died": 0, "collectedFood": 0, "closerToGhost": 0, "closerToExtraction": 0, "closerToUnguardedFood": 0, "collectedCapsule": 0, "closerToCapsule": 0, "gotScore": 0}, "SecondAgent": {"gotOffDefense": 0, "died": 0, "closerToPacman": 0, "closerToCenter": 0, "ateGhost": 0}, "FirstAgentDupe": {"died": 0, "collectedFood": 0, "closerToGhost": 0, "closerToExtraction": 0, "closerToUnguardedFood": 0, "collectedCapsule": 0, "closerToCapsule": 0, "gotScore": 0}, "SecondAgentDupe": {"gotOffDefense": 0, "died": 0, "closerToPacman": 0, "closerToCenter": 0, "ateGhost": 0}}
 
 Working set of weights
