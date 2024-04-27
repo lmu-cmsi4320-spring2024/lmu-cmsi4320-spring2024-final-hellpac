@@ -1,4 +1,6 @@
-from myTeam import DummyAgent
+from captureAgents import CaptureAgent
+from capture import GameState
+from game import Directions
 import util
 
 def createTeam(firstIndex, secondIndex, isRed,
@@ -19,3 +21,7 @@ def createTeam(firstIndex, secondIndex, isRed,
 
   # The following line is an example only; feel free to change it.
   return [eval(first)(firstIndex), eval(second)(secondIndex)]
+
+class DummyAgent(CaptureAgent):
+    def chooseAction(self, gameState: GameState) -> None:
+        return Directions.STOP
