@@ -419,8 +419,8 @@ class FirstAgent(CaptureAgent):
     
   def getOrSetDebug(self) -> str:
     if (self.red): 
-      self.debug = False
-      self.showNoise = True
+      self.debug = False  
+      self.showNoise = False
       self.showTime = False
     return "FirstAgent"
   
@@ -925,7 +925,7 @@ class FirstAgent(CaptureAgent):
         # Only half a grid position was covered
         return (successor.generateSuccessor(self.index, action), self.particleFilter1, self.particleFilter2)
     else:
-        return (successor, self.particleFilter1, self.particleFilter1)
+        return (successor, self.particleFilter1, self.particleFilter2)
 
   def getQValue(self, gameState: GameState, action: str) -> float:
     """
@@ -1256,7 +1256,10 @@ class FirstAgent(CaptureAgent):
 class SecondAgent(FirstAgent):
   #PACMAN CHASER PROFESSIONAL
   def getOrSetDebug(self) -> str:
-    if (self.red): self.debug = False
+    if (self.red): 
+      self.debug = True
+      self.showNoise = True
+      self.showTime = False
     return "SecondAgent"
   
   def getFeatureList(self) -> list[str]:
