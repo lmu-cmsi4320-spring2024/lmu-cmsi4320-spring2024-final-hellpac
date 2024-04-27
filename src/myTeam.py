@@ -438,6 +438,7 @@ class FirstAgent(CaptureAgent):
     
     self.debug = False
     self.showNoise = False
+    self.showTime = False
     self.getOrSetDebug()
     
     if (self.red):
@@ -451,6 +452,12 @@ class FirstAgent(CaptureAgent):
     
     self.averageEvalTime = []
     self.maxEvalTime = 0
+    
+    self.updateTime = []
+    self.maxQsaTime = []
+    self.getFeatureTime = []
+    self.getRewardTime = []
+    self.updatePFTime = []
 
     if (self.isTraining):
       #Thompson Sampling
@@ -467,12 +474,15 @@ class FirstAgent(CaptureAgent):
     if (self.red): 
       self.debug = False
       self.showNoise = False
+      self.showTime = True
     return "FirstAgent"
   
   def getFeatureList(self) -> list[str]:
     return ['died', 'collectedFood', 'closerToGhost', 'closerToExtraction', 'closerToUnguardedFood', 'collectedCapsule', 'closerToCapsule', 'gotScore']
+  
   def getPositiveFeatures(self) -> list[str]:
     return ['collectedFood', 'closerToExtraction', 'closerToUnguardedFood', 'collectedCapsule', 'closerToCapsule', 'gotScore']
+  
   def getNegativeFeatures(self) -> list[str]:
     return ['died', 'closerToGhost']
   
@@ -586,6 +596,7 @@ class FirstAgent(CaptureAgent):
       return n 
   
   def updateParticleFilters(self, gameState: GameState) -> None:
+    start = time.time()
     #Update Particle Filter for noisy readings
     if self.initalizePF:
       self.particleFilter1.elapseTime()
@@ -709,8 +720,8 @@ class FirstAgent(CaptureAgent):
       pf1.elapseTime()
       pf2.elapseTime()
       multipleConstant = 1
-      approxLocs1 = pf1.getApproximateLocations(50)
-      approxLocs2 = pf2.getApproximateLocations(50)
+      approxLocs1 = pf1.getApproximateLocations(10)
+      approxLocs2 = pf2.getApproximateLocations(10)
       
       delList = list()
       for loc in approxLocs1:
@@ -731,6 +742,9 @@ class FirstAgent(CaptureAgent):
       for loc in approxLocs2:
         self.debugDraw(loc, [0, self.clamp(approxLocs2[loc] * multipleConstant, 0, 1), self.clamp(approxLocs2[loc] * multipleConstant, 0, 1)], False)
   
+    timeTaken = time.time() - start
+    self.updatePFTime.append(timeTaken)
+    
   def chooseAction(self, gameState: GameState) -> None:
     """
     Picks among the actions with the highest Q(s,a).
@@ -800,11 +814,8 @@ class FirstAgent(CaptureAgent):
     if timeTaken > self.maxEvalTime:
       self.maxEvalTime = timeTaken
     
-    if self.debug and self.red: 
-        
-      avgEvalTime = sum(self.averageEvalTime)/len(self.averageEvalTime)
-      print('\navg eval time: %s' % avgEvalTime)
-      print('max eval time: %s' % self.maxEvalTime)
+    if self.debug and self.showTime and self.red: 
+      print('\neval time: %s' % timeTaken)
     
     return action
   
@@ -829,6 +840,8 @@ class FirstAgent(CaptureAgent):
       Compute the best action to take in a state.
     """
 
+    if self.debug and self.red: print("\nGetting best action:")
+    
     legalActions = state.getLegalActions(self.index)
 
     if len(legalActions) == 0:
@@ -861,6 +874,9 @@ class FirstAgent(CaptureAgent):
       there are no legal actions, which is the case at the
       terminal state, you should return a value of 0.0.
     """
+    start = time.time()
+    
+    if self.red and self.debug: print("\nGetting MaxQ_SA")
     agentID = hash(state.getAgentPosition(self.index))
     foodID = None
     if (self.red): foodID = hash(state.getRedFood())
@@ -872,15 +888,23 @@ class FirstAgent(CaptureAgent):
       return 0.0  # Terminal state, no legal actions
 
     maxQValue = max(self.getQValue(state, action) + self.optimisticConstant/(self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] + 1) for action in legalActions)
+    
+    timeTaken = time.time() - start
+    self.maxQsaTime.append(timeTaken)
+    
     return maxQValue
   
   def update(self, state: GameState, action: str, nextState: GameState):
     """
       Updates the weights, Also updates the thompson samples
     """
+    
+    start = time.time()
+    
     rewards = self.getReward(state, action, nextState)    
     featureDict = self.getFeatures(state, action)
     maxFutureActionQ_sa = self.getMaxQ_SA(nextState)
+    if self.debug and self.red: print("\nGetting Q_sa for update")
     q_sa = self.getQValue(state, action)
     
     reward = rewards[0] + rewards[1]
@@ -901,7 +925,7 @@ class FirstAgent(CaptureAgent):
     
     for feature in featureDict.keys():
       if self.red and self.debug and featureDict[feature] > 0: 
-        print("\n%s: %s, %s Change after update: %s\n              = %s * %s * %s\n                            featureDiff = (%s + (%s * %s)) - %s" % (feature, featureDict[feature], feature, str(self.learningRate * featureDifference[feature] * featureDict[feature]), self.learningRate, featureDifference[feature], featureDict[feature], debugReward[feature], self.discount, maxFutureActionQ_sa, q_sa))
+        print("\n%s: %s,      Change: %s\n              = %s * %s * %s\n                            featureDiff = (%s + (%s * %s)) - %s" % (feature, featureDict[feature], str(self.learningRate * featureDifference[feature] * featureDict[feature]), self.learningRate, featureDifference[feature], featureDict[feature], debugReward[feature], self.discount, maxFutureActionQ_sa, q_sa))
       self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature])
     
     agentID = hash(state.getAgentPosition(self.index))
@@ -920,6 +944,9 @@ class FirstAgent(CaptureAgent):
     #For Optimistic Sampling
     self.regularGraveyard["(%s, %s)" % (currentArmBranch, action)] += 1
     
+    timeTaken = time.time() - start
+    self.updateTime.append(timeTaken)
+
   def getReward(self, state: GameState, action : str, nextState: GameState) -> tuple[int]:
     """
       Returns reward when given a state, action, and nextState. Should only be called when training
@@ -928,9 +955,14 @@ class FirstAgent(CaptureAgent):
       print("WTF error why did u call getReward when ur not training. Returning None")
       return None
     
+    start = time.time()
+    
     #For Reward Splitting
     positiveReward = self.positiveRewards(state, action, nextState)
     negativeReward = self.negativeRewards(state, action, nextState)
+    
+    timeTaken = time.time() - start
+    self.getRewardTime.append(timeTaken)
     
     return (positiveReward, negativeReward)
 
@@ -955,6 +987,10 @@ class FirstAgent(CaptureAgent):
     Computes a linear combination of features and feature weights
     """
     featureVector = self.getFeatures(gameState, action)
+    if self.red and self.debug: 
+      print("\n%s = Q_sa for %s, %s" % (str(featureVector * self.weights), gameState.getAgentPosition(self.index), action))
+      for feature in featureVector:
+        if self.red and self.debug and featureVector[feature] > 0: print("\n   %s: %s * %s" % (feature, featureVector[feature], self.weights[feature]))
     return featureVector * self.weights
 
   def final(self, gameState: GameState) -> None:
@@ -972,14 +1008,30 @@ class FirstAgent(CaptureAgent):
       #Temp saves graveyard into json file (change this later)
       self.updateGraveyard()
       
-      avgEvalTime = sum(self.averageEvalTime)/(len(self.averageEvalTime) if len(self.averageEvalTime) > 0 else 1)
-      print('\navg eval time: %s' % avgEvalTime)
-      print('max eval time: %s' % self.maxEvalTime)
+      if self.showTime:
+        avgEvalTime = sum(self.averageEvalTime)/len(self.averageEvalTime)
+        print('\navg eval time: %s' % avgEvalTime)
+        print('max eval time: %s' % self.maxEvalTime)
+        
+        avgUpdateTime = sum(self.updateTime)/len(self.updateTime)
+        avgMaxQsaTime = sum(self.maxQsaTime)/len(self.maxQsaTime)
+        avgFeatureTime = sum(self.getFeatureTime)/len(self.getFeatureTime)
+        avgRewardTime = sum(self.getRewardTime)/len(self.getRewardTime)
+        avgPFTime = sum(self.updatePFTime)/len(self.updatePFTime)
+        
+        maxUpdateTime = max(self.updateTime)
+        maxMaxQsaTime = max(self.maxQsaTime)
+        maxFeatureTime = max(self.getFeatureTime)
+        maxRewardTime = max(self.getRewardTime)
+        maxPFTime = max(self.updatePFTime)
+
+        print("\n               Avg Time  | Max Time\nUpdate         %.5f     %.5f\nMax Qsa        %.5f     %.5f\nFeatures        %.5f     %.5f\nReward         %.5f     %.5fP Filter         %.5f     %.5f" % (avgUpdateTime, maxUpdateTime, avgMaxQsaTime, maxMaxQsaTime, avgFeatureTime, maxFeatureTime, avgRewardTime, maxRewardTime, avgPFTime, maxPFTime))
 
   def getFeatures(self, gameState: GameState, action: str) -> util.Counter:
     """
     Returns a counter of features for the state
     """
+    start = time.time()
     
     features = util.Counter()
     agentState = gameState.getAgentState(self.index)
@@ -1011,9 +1063,9 @@ class FirstAgent(CaptureAgent):
     for enemyIndex in opponents:
       if enemyIndex != None:
         if pf1.getTargetIndex() == enemyIndex:
-          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf1.getGhostApproximateLocations().items()]
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf1.getGhostApproximateLocations(10).items()]
         elif pf2.getTargetIndex() == enemyIndex:
-          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf2.getGhostApproximateLocations().items()]
+          enemyLocs[enemyIndex] = [(loc, prob) for loc, prob in pf2.getGhostApproximateLocations(10).items()]
     
     distanceIncreasePercent = 0
     mostProbableDistance = None
@@ -1053,12 +1105,15 @@ class FirstAgent(CaptureAgent):
         
         if currentFoodDistanceScore > foodDistanceScore: foodDistanceScore = currentFoodDistanceScore
     
+    if (gameState.getAgentState(self.enemyIndices[0]).scaredTimer > 0 and gameState.getAgentState(self.enemyIndices[1]).scaredTimer > 0):
+      features['closerToGhost'] = 0
+    
     features['closerToExtraction'] = 0
     
-    if nextAgentState.numCarrying <= 3:
-      if features['collectedFood'] == 1:
-        features['closerToUnguardedFood'] = 1 
-      elif foodDistanceScore > 0:
+    pelletsNeeded = 1 - gameState.getScore() if gameState.getScore() < 1 else 1
+    
+    if agentState.numCarrying < pelletsNeeded:
+      if foodDistanceScore > 0:
         features['closerToUnguardedFood'] = foodDistanceScore
     else:
       extractDistanceScore = 0
@@ -1076,6 +1131,12 @@ class FirstAgent(CaptureAgent):
         if currentDistanceScore > extractDistanceScore: extractDistanceScore = currentDistanceScore
       
       features['closerToExtraction'] = extractDistanceScore if extractDistanceScore > 0 else 0
+      
+      if nextPos in self.extractLocs:
+        features['closerToExtraction'] = 2
+    
+    if features['collectedFood'] == 1:
+        features['closerToUnguardedFood'] = 1 
     
     features['collectedCapsule'] = 1 if len(newCapsulesList) > len(oldCapsulesList) else 0
     
@@ -1088,8 +1149,13 @@ class FirstAgent(CaptureAgent):
       distanceDelta = oldDistanceToCapsule - newDistanceToCapsule
       
       features['closerToCapsule'] = 1 if features['collectedCapsule'] == 1 else distanceDelta
+      if features['closerToCapsule'] < 0:
+        features['closerToCapsule'] = 0
     
     features['gotScore'] = nextAgentState.numCarrying/len(foodList) if nextState.getScore() > gameState.getScore() else 0
+    
+    timeTaken = time.time() - start
+    self.getFeatureTime.append(timeTaken)
     
     return features
   
@@ -1099,7 +1165,7 @@ class FirstAgent(CaptureAgent):
     newPos = nextState.getAgentPosition(self.index)
     
     if (oldPos == self.spawnLocation and self.movesTaken > 20) or (newPos == self.spawnLocation and ((self.red and oldPos[0] > 15) or (not self.red and oldPos[0] < 16))):
-      isDead = -1
+      isDead = -5
     
     closerToGhost = 0
     
@@ -1127,7 +1193,7 @@ class FirstAgent(CaptureAgent):
           mostProbableDistance = self.distancer.getDistance(newPos, locProbTuple[0])
     
     if highestProb > 0 and nextState.getAgentState(self.index).isPacman:
-      if isDead == -2:
+      if isDead < 0:
         closerToGhost = -2
       elif mostProbableDistance <= 1:
         closerToGhost = -2
@@ -1146,7 +1212,7 @@ class FirstAgent(CaptureAgent):
     oldFoodList = self.getFood(state).asList()
     foodList = self.getFood(nextState).asList()
     
-    pelletReward = 0.5 if len(foodList) > len(oldFoodList) and newPos in oldFoodList else 0
+    pelletReward = 1 if len(foodList) > len(oldFoodList) and newPos in oldFoodList else 0
     
     foodList = self.getFood(nextState).asList()
     
@@ -1244,7 +1310,7 @@ class SecondAgent(FirstAgent):
       
     features['gotOffDefense'] = 1 if myState.isPacman and not oldState.isPacman else 0
     
-    features['died'] = 1 if myPos == self.spawnLocation else 0
+    features['died'] = 1 if myPos == self.spawnLocation and self.movesTaken > 20 else 0
     
     enemyOneLocs = [(loc, prob) for loc, prob in pf1.getPacmanApproximateLocations(count=10).items()]
     enemyTwoLocs = [(loc, prob) for loc, prob in pf2.getPacmanApproximateLocations(count=10).items()]
@@ -1288,23 +1354,40 @@ class SecondAgent(FirstAgent):
     if (gameState.getAgentPosition(self.enemyIndices[0]) == myPos and ((self.red and myPos[0] <= 15) or (not self.red and myPos[0] >= 16))) or (gameState.getAgentPosition(self.enemyIndices[1]) == myPos and ((self.red and myPos[0] <= 15) or (not self.red and myPos[0] >= 16))):
       features['ateGhost'] = 1
 
-    center = (15, 7) if self.red else (16, 7)
-    oldCenterDistance = self.distancer.getDistance(oldPos, center)
-    newCenterDistance = self.distancer.getDistance(myPos, center)
+    if features['closerToPacman'] == 0:
+      center = (15, 7) if self.red else (16, 7)
+      oldCenterDistance = self.distancer.getDistance(oldPos, center)
+      newCenterDistance = self.distancer.getDistance(myPos, center)
     
-    features['closerToCenter'] = 0.01 if newCenterDistance < oldCenterDistance else 0
+      features['closerToCenter'] = 0.01 if newCenterDistance < oldCenterDistance else 0
 
     return features
+  
+  def final(self, gameState: GameState) -> None:
+    self.gameCount += 1
+    if (self.isTraining):
+      #Update weights and TS
+      if (self.previousActionMemory != None):
+        #Update weights and all that
+        self.update(self.previousActionMemory[0], self.previousActionMemory[1], gameState)
+      
+      self.movesTaken = 0
+      
+      #Temp saves weights into json file (change this later)
+      self.updateWeights()
+      #Temp saves graveyard into json file (change this later)
+      self.updateGraveyard()
+      
+      avgEvalTime = sum(self.averageEvalTime)/(len(self.averageEvalTime) if len(self.averageEvalTime) > 0 else 1)
+      print('\Defender avg eval time: %s' % avgEvalTime)
+      print('Defender max eval time: %s' % self.maxEvalTime)
   
   def negativeRewards(self, state: GameState, action: str, nextState: GameState) -> float:
     isDead = 0
     oldPos = state.getAgentPosition(self.index)
     newPos = nextState.getAgentPosition(self.index)
     
-    if self.red:
-      isDead = -2 if newPos == self.spawnLocation and oldPos[0] > 15 else 0
-    if not self.red:
-      isDead = -2 if newPos == self.spawnLocation and oldPos[0] < 16 else 0
+    isDead = -2 if newPos == self.spawnLocation and self.movesTaken > 20 else 0
     
     gotOffDefense = -2 if nextState.getAgentState(self.index).isPacman and not state.getAgentState(self.index).isPacman else 0
     
@@ -1357,11 +1440,13 @@ class SecondAgent(FirstAgent):
     oldCenterDistance = self.distancer.getDistance(oldPos, center)
     newCenterDistance = self.distancer.getDistance(newPos, center)
     
-    closerToCenter = 0.001 if newCenterDistance < oldCenterDistance else 0
+    closerToCenter = 0.01 if newCenterDistance < oldCenterDistance else 0
     
     positiveReward = closerToGhost + eatGhost + closerToCenter
     
     return positiveReward - self.livingReward if positiveReward - self.livingReward > 0 else 0
+  
+  
   
   def gotOffDefenseReward(self, state: GameState, action : str, nextState: GameState) -> float:
     return -5
