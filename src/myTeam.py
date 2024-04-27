@@ -736,7 +736,7 @@ class FirstAgent(CaptureAgent):
     Picks among the actions with the highest Q(s,a).
     """
     
-    if self.debug and self.red: start = time.time()
+    time.time()
     
     if self.previousActionMemory != None:
       self.updateParticleFilters(gameState)
@@ -795,11 +795,12 @@ class FirstAgent(CaptureAgent):
     self.previousActionMemory = (gameState, action)
     self.movesTaken += 1
     
+    timeTaken = time.time() - start
+    self.averageEvalTime.append(timeTaken)
+    if timeTaken > self.maxEvalTime:
+      self.maxEvalTime = timeTaken
+    
     if self.debug and self.red: 
-      timeTaken = time.time() - start
-      self.averageEvalTime.append(timeTaken)
-      if timeTaken > self.maxEvalTime:
-        self.maxEvalTime = timeTaken
         
       avgEvalTime = sum(self.averageEvalTime)/len(self.averageEvalTime)
       print('\navg eval time: %s' % avgEvalTime)
