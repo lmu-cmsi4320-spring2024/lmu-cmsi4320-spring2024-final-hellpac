@@ -317,10 +317,10 @@ def createTeam(firstIndex, secondIndex, isRed,
   """
 
   # The following line is an example only; feel free to change it.
-  if firstIndex == 1 or firstIndex == 3:
-    enemyIndex = (2, 4)
-  else:
+  if isRed:
     enemyIndex = (1, 3)
+  else:
+    enemyIndex = (0, 2)
   
   particleFilter1 = ParticleFilter(isRed, enemyIndex[0])
   particleFilter2 = ParticleFilter(isRed, enemyIndex[1])
@@ -332,8 +332,8 @@ def createTeam(firstIndex, secondIndex, isRed,
 
 class FirstAgent(CaptureAgent):
   def registerInitialState(self, gameState: GameState, training: bool = TRAINING) -> None:
-    self.start = gameState.getAgentPosition(self.index)
     CaptureAgent.registerInitialState(self, gameState)
+    self.start = gameState.getAgentPosition(self.index)
     
     self.weights = util.Counter() 
     self.loadWeights()
@@ -1154,7 +1154,7 @@ class FirstAgent(CaptureAgent):
     
     oldFoodList = self.getFood(state).asList()
     
-    pelletReward = 3 if newPos in oldFoodList else 0
+    pelletReward = 5 if newPos in oldFoodList else 0
     
     foodList = self.getFood(nextState).asList()
     
@@ -1331,7 +1331,7 @@ class CJAgent(FirstAgent):
     else:
       features['deadEnd'] = 0
 
-    if pos in self.wasteland and (self.red and pos[0] > 15) or (not self.red and pos[0] < 16):
+    if pos in self.wasteland and((self.red and pos[0] > 15) or (not self.red and pos[0] < 16)):
       features['wasteLandFatigue'] = 1
     else:
       features['wasteLandFatigue'] = 0
@@ -1506,7 +1506,7 @@ class CJAgent(FirstAgent):
 
     pelletsNeeded = 4
     if state.getAgentState(self.index).numCarrying < pelletsNeeded:
-        if oldPos and newPos in self.wasteland and (self.red and newPos[0] > 15) or (not self.red and newPos[0] < 16):
+        if oldPos in self.wasteland and newPos in self.wasteland and ((self.red and newPos[0] > 15) or (not self.red and newPos[0] < 16)):
             wastelandFatigue = -0.33
       
         
