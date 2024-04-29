@@ -10,4 +10,22 @@ Working set of weights
 {"FirstAgent": {"died": -5.76492713289702, "collectedFood": 2.888175844914342, "closerToGhost": -4.881262366677594, "closerToExtraction": 4.9532022866384, "closerToUnguardedFood": 2.655125240079759, "collectedCapsule": 2.216122903613041, "closerToCapsule": 0.5815065568514499, "gotScore": 1.7919157099859178}, "SecondAgent": {"gotOffDefense": -4.986378474192549, "died": -4.485387192308569, "closerToPacman": 2.5347294464752643, "closerToCenter": 1.7580770381910278, "ateGhost": 2.580799931616882}}
 after training with baselineAgent for 300 iterations 
 
-{"FirstAgent": {"died": -5.70425649304386, "collectedFood": 2.6142515105467745, "closerToGhost": -5.039465134845562, "closerToExtraction": 4.801092521214684, "closerToUnguardedFood": 2.505296511374481, "collectedCapsule": 2.422333643379459, "closerToCapsule": 0.3240367012038622, "gotScore": 3.251776036809634}, "SecondAgent": {"gotOffDefense": -4.979250351141487, "died": -4.889065758922048, "closerToPacman": 2.535308465031849, "closerToCenter": 3.3186823848827425, "ateGhost": 2.581378950173467}, "SecondAgentDupe": {"gotOffDefense": -0.04999996040014583, "died": -0.04999992179051173, "closerToPacman": 0.0, "ateGhost": 0.0, "closerToCenter": 0.0014409700715326515}, "FirstAgentDupe": {"died": 0.0, "collectedFood": 0.0, "closerToUnguardedFood": 0.12090234342649775, "collectedCapsule": 0.0, "closerToCapsule": 0.11279041824977917, "gotScore": 0.0, "closerToGhost": -0.00355500763692045}}
+{"FirstAgent": {"died": -5.76492713289702, "collectedFood": 2.888175844914342, "closerToGhost": -4.881262366677594, "closerToExtraction": 4.9532022866384, "closerToUnguardedFood": 2.655125240079759, "collectedCapsule": 2.216122903613041, "closerToCapsule": 0.5815065568514499, "gotScore": 1.7919157099859178}, "SecondAgent": {"gotOffDefense": -4.986378474192549, "died": -4.485387192308569, "closerToPacman": 2.5347294464752643, "closerToCenter": 1.7580770381910278, "ateGhost": 2.580799931616882}}
+after 1000
+
+{"FirstAgent": {"died": -3.1093018683819382, "collectedFood": 2.7674170460640357, "closerToGhost": -4.609225170422739, "closerToExtraction": 5.989448092847888, "closerToUnguardedFood": 3.8676214194971057, "collectedCapsule": 2.7460815115900457, "closerToCapsule": 1.4287744499534174, "gotScore": 1.7342303361995026}, "SecondAgent": {"gotOffDefense": -4.986378474192549, "died": -4.350393694841043, "closerToPacman": 1.9727212887423298, "closerToCenter": 1.9200658228449243, "ateGhost": 2.718205589524925}}
+
+
+
+After training from 0 and 500 games zweights
+{"FirstAgent": {"died": -0.31906300827517875, "collectedFood": 6.9855184341902135, "closerToGhost": -4.2697288414704895, "collectedCapsule": 5.521874999543797, "closerToCapsule": 2.517421203074544, "gotScore": 2.716314411832871, "closerToUnguardedFood": 5.913365810388089, "deadEnd": -4.557073553025033, "closerToExtraction": 10.222624685398959}, "SecondAgent": {"gotOffDefense": -4.626944637151146, "died": -3.821288001797361, "closerToPacman": 5.023330749874309, "ateGhost": 0.9086710637844655, "closerToCenter": 2.491824259751996}}
+
+After trianig from 0 and 1600 games zdupeweights (two attackers)
+{"FirstAgentDupe": {"died": -0.24151419024846044, "collectedFood": 6.272781743660186, "closerToGhost": -5.043234763624472, "collectedCapsule": 6.03260989396252, "closerToCapsule": 2.694876624708206, "gotScore": 4.430486147395434, "closerToUnguardedFood": 3.7035121677795804, "deadEnd": -4.503414345212491, "closerToExtraction": 11.246543484031887}, "SecondAgentDupe": {}}
+
+
+
+Training 2
+{"FirstAgentDupe": {"died": -0.01408275515470857, "collectedFood": 6.689751332332913, "closerToGhost": -5.238610011609842, "collectedCapsule": 5.5635218792167525, "closerToCapsule": 2.5733972293703222, "gotScore": 5.335338790660197, "closerToFood": 4.652804591272157, "deadEnd": -4.189238868051656, "closerToExtraction": 11.794344527251084}, "SecondAgentDupe": {}}
+
+{"FirstAgent": {"died": -2.5644852063975367, "collectedFood": 6.556570602761891, "closerToGhost": -4.781296920926244, "collectedCapsule": 6.2703138353369114, "closerToCapsule": 3.0800923790110692, "gotScore": 3.355673810049292, "closerToFood": 5.894876243991415, "deadEnd": -4.598698873571676, "closerToExtraction": 11.521497195074767}, "SecondAgent": {"gotOffDefense": -4.690001239527772, "died": -4.275911193298362, "closerToPacman": 3.13332923267905, "ateGhost": 1.267178061264398, "closerToCenter": 1.7129861343026533}}

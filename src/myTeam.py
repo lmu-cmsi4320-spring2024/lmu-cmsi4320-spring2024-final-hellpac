@@ -50,13 +50,15 @@ REGULAR_GRAVEYARD_PATH = 'zregular_graveyard_MY_TEAM.json'
 
 KEEPGRAVEYARD = False
 
+LEARNING_RATE = 0.05
+
 INITALTEAMWEIGHTS =  {"FirstAgent": util.Counter(), "SecondAgent": util.Counter()}
 INITALTSGRAVEYARD = {"FirstAgent": dict[int: list[tuple()]](), "SecondAgent": dict[int: list[tuple()]]()}
 INITALREGULARGRAVEYARD = {"FirstAgent": util.Counter(dict[str: int]()), "SecondAgent": util.Counter(dict[tuple[str, 1]: int]())}
 
 MOVES = ["North", "South", "East", "West", "Stop"]
 
-STARINGEPSILON = 0.5
+STARINGEPSILON = 0.64
 
 # Any other constants used for your training (learning rate, discount, etc.)
 # should be specified here
@@ -353,7 +355,7 @@ class FirstAgent(CaptureAgent):
     self.loadWeights()
     
     self.discount=0.9
-    self.learningRate=0.01
+    self.learningRate=LEARNING_RATE
 
     self.livingReward = -0.1
     
@@ -381,20 +383,10 @@ class FirstAgent(CaptureAgent):
     else:
       self.extractLocs = [(16, 1), (16, 2), (16, 3), (16, 4), (16, 7), (16, 8), (16, 10), (16, 11), (16, 13), (16, 14)]
 
-    self.deadEnds = [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1,6), (1, 7), (1, 8), (1, 9), (1, 10), (1,11), (1,12), (1,13), (1,14), (2,14), (3,14), (3,13),(3, 12), (3,11), (3,10), (3, 8), (3, 5), (3,4), (3,3), (3,2), (3,1), (5,14), (6,14), (5,12), (5,1), (6,9), (7,9), (7,8), (7,3), (8,14), (8,11), (8,9), (8,3), (9,11), (9,5), (10,14), (10,11), (10,9), (10,7), (10,3), (11, 9), (14,9), (17,6), (20,6), (21, 12), (21,8), (21,6), (21,4), (21,1), (22, 10), (22, 4), (23, 12), (23, 6), (23, 4), (23, 1), (24, 12), (24, 7), (24, 6), (25, 1), (26, 14), (26, 3), (26, 1), (28, 14), (28, 14), (28, 12), (28,11), (28,10), (28,9), (28,7), (28, 5), (28, 4), (28, 3), (28, 2), (28, 1),  (29, 1), (30, 1), (30, 2), (30,3), (30, 4), (30, 5), (30, 6), (30, 7), (30, 8), (30, 9), (30, 10), (30, 11), (30, 12), (30,13), (30,14) ]
-
-
-    '''
-
-    if pos in self.deadEnds:
-      features[deadEnd] = 1
-    else:
-      features[deadEnd] = 1
-    '''
+    self.deadEnds = [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1,6), (1, 7), (1, 8), (1, 9), (1, 10), (1,11), (1,12), (1,13), (1,14), (2,14), (3,14), (3,13),(3, 12), (3,11), (3,10), (3, 8), (3, 6), (3, 5), (3,4), (3,3), (3,2), (3,1), (5,14), (6,14), (5,12), (5,1), (6,9), (7,9), (7,8), (7,3), (8,14), (8,11), (8,12), (8,9), (8,3), (9,11), (9,5), (10,14), (10,11), (10,9), (10,7), (10,3), (11, 9), (14,9), (17,6), (20,6), (21, 12), (21,8), (21,6), (21,4), (21,1), (22, 10), (22, 4), (23, 12), (23, 6), (23, 4), (23, 1), (23, 3), (24, 12), (24, 7), (24, 6), (25, 1), (25, 6), (26, 14), (26, 3), (26, 1), (28, 13), (28, 14), (28, 12), (28,11), (28,10), (28,9), (28,7), (28, 5), (28, 4), (28, 3), (28, 2), (28, 1),  (29, 1), (30, 1), (30, 2), (30,3), (30, 4), (30, 5), (30, 6), (30, 7), (30, 8), (30, 9), (30, 10), (30, 11), (30, 12), (30,13), (30,14) ]
     
-    self.featuresList = self.getFeatureList()
-    self.postiveFeatures = self.getPositiveFeatures()
-    self.negativeFeatures = self.getNegativeFeatures()
+    self.center = (14, 7) if self.red else (17, 7)
+    self.foodView = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     
     self.averageEvalTime = []
     self.maxEvalTime = 0
@@ -406,6 +398,8 @@ class FirstAgent(CaptureAgent):
     self.getRewardTime = []
     self.updatePFTime = []
 
+    self.registerCustomValues()
+
     if (self.isTraining):
       #Thompson Sampling
       self.armsGraveyard = dict[int: list[tuple()]]()
@@ -416,6 +410,10 @@ class FirstAgent(CaptureAgent):
     
       # if (KEEPGRAVEYARD):
       #   self.loadGraveyard()
+      
+  def registerCustomValues(self) -> None:
+    #method for subclasses
+    pass
     
   def getOrSetDebug(self) -> str:
     if (self.red): 
@@ -425,13 +423,19 @@ class FirstAgent(CaptureAgent):
     return "FirstAgent"
   
   def getFeatureList(self) -> list[str]:
-    return ['died', 'collectedFood', 'closerToGhost', 'closerToExtraction', 'closerToUnguardedFood', 'collectedCapsule', 'closerToCapsule', 'gotScore']
+    return ['died', 'collectedFood', 'closerToGhost', 'closerToExtraction', 'closerToFood', 'collectedCapsule', 'closerToCapsule', 'gotScore', 'deadEnd']
   
   def getPositiveFeatures(self) -> list[str]:
-    return ['collectedFood', 'closerToExtraction', 'closerToUnguardedFood', 'collectedCapsule', 'closerToCapsule', 'gotScore']
+    return ['closerToExtraction', 'closerToFood', 'closerToCapsule']
   
   def getNegativeFeatures(self) -> list[str]:
-    return ['died', 'closerToGhost']
+    return ['closerToGhost', 'deadEnd']
+  
+  def getHungerFeatures(self) -> list[str]:
+    return ['collectedFood', 'collectedCapsule', 'gotScore']
+  
+  def getDeathFeatures(self) -> list[str]:
+    return ['died']
   
   def loadWeights(self) -> None:
     agentStr = self.getOrSetDebug()
@@ -744,7 +748,7 @@ class FirstAgent(CaptureAgent):
               chosenActionIndex = actionIndex
               
         action = MOVES[chosenActionIndex]
-      elif random.random() < STARINGEPSILON ** (self.gameCount/50):
+      elif random.random() < STARINGEPSILON ** ((self.gameCount + 50)/50):
         action = self.getRandomAction(gameState)
       else:
         action = self.getBestAction(gameState)
@@ -858,19 +862,25 @@ class FirstAgent(CaptureAgent):
     
     debugReward = util.Counter()
     
-    for feature in self.featuresList:
-      if feature in self.postiveFeatures:
+    for feature in self.getFeatureList():
+      if feature in self.getPositiveFeatures():
         featureDifference[feature] = (rewards[0] + (self.discount * maxFutureActionQ_sa)) - q_sa
         debugReward[feature] = rewards[0]
-      elif feature in self.negativeFeatures:
+      elif feature in self.getNegativeFeatures():
         featureDifference[feature] = (rewards[1] + (self.discount * maxFutureActionQ_sa)) - q_sa
         debugReward[feature] = rewards[1]
+      elif feature in self.getHungerFeatures():
+        featureDifference[feature] = (rewards[2] + (self.discount * maxFutureActionQ_sa)) - q_sa
+        debugReward[feature] = rewards[2]
+      elif feature in self.getDeathFeatures():
+        featureDifference[feature] = (rewards[3] + (self.discount * maxFutureActionQ_sa)) - q_sa
+        debugReward[feature] = rewards[3]
         
     if self.red and self.debug: print("\nUpdating Features")
     
     for feature in featureDict.keys():
       if self.red and self.debug and featureDict[feature] > 0: 
-        print("\n%s: %s,      Change: %s\n              = %s * %s * %s\n                            featureDiff = (%s + (%s * %s)) - %s" % (feature, featureDict[feature], str(self.learningRate * featureDifference[feature] * featureDict[feature]), self.learningRate, featureDifference[feature], featureDict[feature], debugReward[feature], self.discount, maxFutureActionQ_sa, q_sa))
+        print("\n%s: %s,     %s Change: %s\n              = %s * %s * %s\n                            featureDiff = (%s + (%s * %s)) - %s" % (feature, featureDict[feature], feature, str(self.learningRate * featureDifference[feature] * featureDict[feature]), self.learningRate, featureDifference[feature], featureDict[feature], debugReward[feature], self.discount, maxFutureActionQ_sa, q_sa))
       self.weights[feature] += (self.learningRate * featureDifference[feature] * featureDict[feature])
     
     agentID = hash(state.getAgentPosition(self.index))
@@ -897,19 +907,21 @@ class FirstAgent(CaptureAgent):
       Returns reward when given a state, action, and nextState. Should only be called when training
     """
     if not self.isTraining:
-      print("WTF error why did u call getReward when ur not training. Returning None")
-      return None
+      print("WTF error why did u call getReward when ur not training. Returning 0's Tuple")
+      return (0, 0, 0, 0)
     
     start = time.time()
     
     #For Reward Splitting
     positiveReward = self.positiveRewards(state, action, nextState)
     negativeReward = self.negativeRewards(state, action, nextState)
+    hungerReward = self.hungerRewards(state, action, nextState)
+    deathReward = self.deathRewards(state, action, nextState)
     
     timeTaken = time.time() - start
     self.getRewardTime.append(timeTaken)
     
-    return (positiveReward, negativeReward)
+    return (positiveReward, negativeReward, hungerReward, deathReward)
 
   def getSuccessor(self, gameState: GameState, action: str) -> tuple[GameState, any, any]:
     """
@@ -922,7 +934,7 @@ class FirstAgent(CaptureAgent):
     successor = gameState.generateSuccessor(self.index, action)
     pos = successor.getAgentState(self.index).getPosition()
     if pos != util.nearestPoint(pos):
-        # Only half a grid position was covered
+        # Only half a grid position was covered 
         return (successor.generateSuccessor(self.index, action), self.particleFilter1, self.particleFilter2)
     else:
         return (successor, self.particleFilter1, self.particleFilter2)
@@ -939,7 +951,8 @@ class FirstAgent(CaptureAgent):
       print("\n%s = Q_sa for %s, %s" % (str(featureVector * self.weights), gameState.getAgentPosition(self.index), action))
       for feature in featureVector:
         if self.red and self.debug and featureVector[feature] > 0: print("\n   %s: %s * %s" % (feature, featureVector[feature], self.weights[feature]))
-        
+        if featureVector[feature] < 0:
+          print("\n\n%s Error: Value: %s" % (feature, featureVector[feature]))
     timeTaken = time.time() - start
     self.getQsaTime.append(timeTaken)
     
@@ -1009,9 +1022,6 @@ class FirstAgent(CaptureAgent):
     
     oldCapsulesList = self.getCapsules(gameState)
     
-    foodDistanceScore = -100
-    # Will get the closest pellet and weigh score by how close pellet is and whether it got closer or not
-    
     opponents = self.getOpponents(gameState)
     enemyLocs = {}
     for enemyIndex in opponents:
@@ -1023,8 +1033,10 @@ class FirstAgent(CaptureAgent):
     
     distanceIncreasePercent = 0
     mostProbableDistance = None
+    minProbableDistance = 1000
     highestProb = 0
     for enemyIndex in enemyLocs:
+      localHighestProb = 0
       for locProbTuple in enemyLocs[enemyIndex]:
         oldEnemyDistance = self.distancer.getDistance(pos, locProbTuple[0])
         currentEnemyDistance = self.distancer.getDistance(nextPos, locProbTuple[0])
@@ -1034,6 +1046,12 @@ class FirstAgent(CaptureAgent):
         if locProbTuple[1] > highestProb:
           highestProb = locProbTuple[1]
           mostProbableDistance = self.distancer.getDistance(pos, locProbTuple[0])
+        
+        if locProbTuple[1] > localHighestProb:
+          localHighestProb = locProbTuple[1]
+          
+        if locProbTuple[1] > 0.1 and currentEnemyDistance < minProbableDistance:
+          minProbableDistance = currentEnemyDistance
     
     if highestProb > 0:
       if features['died'] == 1:
@@ -1043,33 +1061,48 @@ class FirstAgent(CaptureAgent):
       else:
         if distanceIncreasePercent > 1:
           distanceIncreasePercent = 1
-        features['closerToGhost'] = distanceIncreasePercent * ((-1/3.5 * math.log(mostProbableDistance, 3)) +1)
+        features['closerToGhost'] = distanceIncreasePercent * ((-1/3.5 * math.log(mostProbableDistance, 3)) +1) if distanceIncreasePercent * ((-1/3.5 * math.log(mostProbableDistance, 3)) +1) > 0 else 0
+    
+    if nextAgentState.isPacman and nextPos in self.deadEnds:
+      if minProbableDistance >= 1:
+        features['deadEnd'] = ((-1/3.5 * math.log(minProbableDistance, 3)) +1) if ((-1/3.5 * math.log(minProbableDistance, 3)) +1) < 1 else 1
+      else:
+        features['deadEnd'] = 1
     
     if (nextState.getAgentPosition(self.index) == gameState.getAgentPosition(self.enemyIndices[0]) or nextState.getAgentPosition(self.index) == gameState.getAgentPosition(self.enemyIndices[1])):
       features['closerToGhost'] = 1
       
     if (gameState.getAgentState(self.enemyIndices[0]).scaredTimer > 0 and gameState.getAgentState(self.enemyIndices[1]).scaredTimer > 0):
       features['closerToGhost'] = 0
+      features['deadEnd'] = 0  
+      features['died'] = 0
+    
+    foodDistanceScore = -100
+    # Will get the closest pellet and weigh score by how close pellet is and whether it got closer or not
+    # Will also weight it based off if any enemy is near it or not and the relative priority of the pellet
     
     if len(foodList) > 0:
       for food in foodList:
-        oldDistanceToFood = self.distancer.getDistance(pos, food)
-        newDistanceToFood = self.distancer.getDistance(nextPos, food)
-        currentFoodDistanceScore = 0
-        
-        distanceDelta = oldDistanceToFood - newDistanceToFood
-        if newDistanceToFood <= 1:
-          currentFoodDistanceScore = distanceDelta if distanceDelta > 0 else 0
-        else:
-          currentFoodDistanceScore = distanceDelta * (-1/6 * math.log2(newDistanceToFood) +1)
-        
-        if currentFoodDistanceScore > foodDistanceScore: foodDistanceScore = currentFoodDistanceScore
+        if food[1] in self.foodView:
+          oldDistanceToFood = self.distancer.getDistance(pos, food)
+          newDistanceToFood = self.distancer.getDistance(nextPos, food)
+          currentFoodDistanceScore = 0
+          
+          distanceDelta = oldDistanceToFood - newDistanceToFood
+          
+          if newDistanceToFood <= 1:
+            currentFoodDistanceScore = distanceDelta if distanceDelta > 0 else 0
+          elif distanceDelta > 0:
+            currentFoodDistanceScore = distanceDelta * (-1/4 * math.log(newDistanceToFood, 4) +1)
+
+          if currentFoodDistanceScore > foodDistanceScore: 
+            foodDistanceScore = currentFoodDistanceScore
     
     pelletsNeeded = 1 - gameState.getScore() if gameState.getScore() < 1 else 1
     
     if agentState.numCarrying < pelletsNeeded:
       if foodDistanceScore > 0:
-        features['closerToUnguardedFood'] = foodDistanceScore
+        features['closerToFood'] = foodDistanceScore if foodDistanceScore != -100 else 0
     else:
       extractDistanceScore = 0
       for loc in self.extractLocs:
@@ -1091,7 +1124,7 @@ class FirstAgent(CaptureAgent):
         features['closerToExtraction'] = 1
     
     if features['collectedFood'] == 1:
-        features['closerToUnguardedFood'] = 0
+        features['closerToFood'] = 1
     
     if len(oldCapsulesList) > 0:
       features['collectedCapsule'] = 1 if nextPos == oldCapsulesList[0] else 0
@@ -1104,24 +1137,20 @@ class FirstAgent(CaptureAgent):
       
       distanceDelta = oldDistanceToCapsule - newDistanceToCapsule
       
-      features['closerToCapsule'] = 0 if features['collectedCapsule'] == 1 else distanceDelta
+      features['closerToCapsule'] = 1 if features['collectedCapsule'] == 1 else distanceDelta
       if features['closerToCapsule'] < 0:
         features['closerToCapsule'] = 0
 
     features['gotScore'] = agentState.numCarrying/len(foodList) if not nextAgentState.isPacman and agentState.numCarrying > 0 else 0
-    
+     
     timeTaken = time.time() - start
     self.getFeatureTime.append(timeTaken)
     
     return features
   
   def negativeRewards(self, state: GameState, action: str, nextState: GameState) -> float:
-    isDead = 0
     oldPos = state.getAgentPosition(self.index)
     newPos = nextState.getAgentPosition(self.index)
-    
-    if (oldPos == self.spawnLocation and self.movesTaken > 20) or (newPos == self.spawnLocation and ((self.red and oldPos[0] > 15) or (not self.red and oldPos[0] < 16))):
-      isDead = -5
     
     closerToGhost = 0
     
@@ -1149,28 +1178,35 @@ class FirstAgent(CaptureAgent):
           mostProbableDistance = self.distancer.getDistance(newPos, locProbTuple[0])
     
     if highestProb > 0 and nextState.getAgentState(self.index).isPacman:
-      if isDead < 0:
-        closerToGhost = -2
-      elif mostProbableDistance <= 1:
-        closerToGhost = -2
+      if mostProbableDistance <= 1:
+        closerToGhost = -1
       else:
         closerToGhost = distanceIncreasePercent * -0.25 * (-1/3.5 * math.log(mostProbableDistance, 3) +1)
     
-    negativeReward = isDead + closerToGhost
+    deadEnd = -0.05 if nextState.getAgentState(self.index).isPacman and newPos in self.deadEnds else 0
+    
+    negativeReward = closerToGhost + deadEnd
     if self.debug and self.red: 
       print("negative Reward: %s" % negativeReward)
-      if isDead < 0: print("\n   isDead: %s" % isDead)
       if closerToGhost < 0: print("\n   closerToGhost: %s" % closerToGhost)
+      if deadEnd < 0: print("\n   deadEnd: %s" % deadEnd)
     
     return negativeReward
+  
+  def deathRewards(self, state: GameState, action: str, nextState: GameState) -> float:
+    isDead = 0
+    oldPos = state.getAgentPosition(self.index)
+    newPos = nextState.getAgentPosition(self.index)
+    
+    if (oldPos == self.spawnLocation and self.movesTaken > 20) or (newPos == self.spawnLocation and ((self.red and oldPos[0] > 15) or (not self.red and oldPos[0] < 16))):
+      isDead = -10
+      
+    if self.debug and self.red and isDead < 0: print("Dead Reward: %s" % isDead)
+    return isDead
     
   def positiveRewards(self, state: GameState, action: str, nextState: GameState) -> float:
     oldPos = state.getAgentPosition(self.index)
     newPos = nextState.getAgentPosition(self.index)
-    
-    oldFoodList = self.getFood(state).asList()
-    
-    pelletReward = 1 if newPos in oldFoodList else 0
     
     foodList = self.getFood(nextState).asList()
     
@@ -1190,14 +1226,9 @@ class FirstAgent(CaptureAgent):
         
         if currentFoodDistanceScore > foodDistanceScore: foodDistanceScore = currentFoodDistanceScore
         
-    pelletReward += 0.025 * foodDistanceScore if foodDistanceScore > 0 else 0
+    pelletReward = 0.1 * foodDistanceScore if foodDistanceScore > 0 else 0
     
     oldCapsulesList = self.getCapsules(state)
-
-    capsuleReward = 0
-    
-    if len(oldCapsulesList) > 0:
-      capsuleReward = 2 if newPos == oldCapsulesList[0] else 0
     
     if len(oldCapsulesList) > 0:
       capsule = oldCapsulesList[0]
@@ -1206,7 +1237,7 @@ class FirstAgent(CaptureAgent):
       
       distanceDelta = oldDistanceToCapsule - newDistanceToCapsule
       
-    capsuleReward += distanceDelta * 0.05 if distanceDelta > 0 and len(oldCapsulesList) > 0 else 0
+    capsuleReward = distanceDelta * 0.15 if distanceDelta > 0 and len(oldCapsulesList) > 0 else 0
     
     closerToExtraction = 0
     needToExtract = False
@@ -1229,36 +1260,57 @@ class FirstAgent(CaptureAgent):
         
         if currentDistanceScore > extractDistanceScore: extractDistanceScore = currentDistanceScore
         
-      closerToExtraction = extractDistanceScore * 0.1 if extractDistanceScore > 0 else 0
-    
-    agentState = state.getAgentState(self.index)
-    nextAgentState = nextState.getAgentState(self.index)
-    
-    scoreReward = 2 * agentState.numCarrying if not nextAgentState.isPacman and agentState.numCarrying > 0 else 0
+      closerToExtraction = extractDistanceScore * 0.075 if extractDistanceScore > 0 else 0
     
     if needToExtract:
-      positiveReward = closerToExtraction + capsuleReward + scoreReward
+      positiveReward = closerToExtraction + capsuleReward
       if self.debug and self.red: 
         print("Positive Reward: %s" % positiveReward)
         if closerToExtraction > 0: print("\n   closerToExtraction: %s" % closerToExtraction)
         if capsuleReward > 0: print("\n   capsuleReward: %s" % capsuleReward)
-        if scoreReward > 0: print("\n   scoreReward: %s" % scoreReward)
     else:
-      positiveReward = pelletReward + capsuleReward + scoreReward
+      positiveReward = pelletReward + capsuleReward
       if self.debug and self.red: 
         print("Positive Reward: %s" % positiveReward)
         if pelletReward > 0: print("\n   pelletReward: %s" % pelletReward)
         if capsuleReward > 0: print("\n   capsuleReward: %s" % capsuleReward)
-        if scoreReward > 0: print("\n   scoreReward: %s" % scoreReward)
     
     return positiveReward - self.livingReward if positiveReward - self.livingReward > 0 else 0
+  
+  def hungerRewards(self, state: GameState, action: str, nextState: GameState) -> float:
+    newPos = nextState.getAgentPosition(self.index)
+    
+    oldFoodList = self.getFood(state).asList()
+    
+    pelletReward = 1 if newPos in oldFoodList else 0
+    
+    oldCapsulesList = self.getCapsules(state)
+    
+    if len(oldCapsulesList) > 0:
+      capsuleReward = 5 if newPos == oldCapsulesList[0] else 0
+    else:
+      capsuleReward = 0
+      
+    agentState = state.getAgentState(self.index)
+    nextAgentState = nextState.getAgentState(self.index)
+    
+    scoreReward = 5 * agentState.numCarrying if not nextAgentState.isPacman and agentState.numCarrying > 0 else 0
+      
+    hungerReward = pelletReward + capsuleReward + scoreReward
+    if self.debug and self.red: 
+      print("Hunger Reward: %s" % hungerReward)
+      if pelletReward > 0: print("\n   pelletReward: %s" % pelletReward)
+      if capsuleReward > 0: print("\n   capsuleReward: %s" % capsuleReward)
+      if scoreReward > 0: print("\n   scoreReward: %s" % scoreReward)
+      
+    return hungerReward
   
 class SecondAgent(FirstAgent):
   #PACMAN CHASER PROFESSIONAL
   def getOrSetDebug(self) -> str:
     if (self.red): 
-      self.debug = True
-      self.showNoise = True
+      self.debug = False
+      self.showNoise = False
       self.showTime = False
     return "SecondAgent"
   
@@ -1266,10 +1318,16 @@ class SecondAgent(FirstAgent):
     return ['gotOffDefense', 'died', 'closerToPacman', 'ateGhost', 'closerToCenter']
   
   def getPositiveFeatures(self) -> list[str]:
-    return ['closerToPacman', 'ateGhost', 'closerToCenter']
+    return ['closerToPacman', 'closerToCenter']
   
   def getNegativeFeatures(self) -> list[str]:
-    return ['gotOffDefense', 'died']
+    return ['gotOffDefense']
+  
+  def getHungerFeatures(self) -> list[str]:
+    return ['ateGhost']
+  
+  def getDeathFeatures(self) -> list[str]:
+    return ['died']
   
   def getFeatures(self, gameState: GameState, action: str) -> util.Counter:
     features = util.Counter()
@@ -1333,41 +1391,38 @@ class SecondAgent(FirstAgent):
     if features['ateGhost'] == 1: features['closerToPacman'] = 1
 
     if features['closerToPacman'] == 0:
-      center = (15, 7) if self.red else (16, 7)
-      oldCenterDistance = self.distancer.getDistance(oldPos, center)
-      newCenterDistance = self.distancer.getDistance(myPos, center)
+      oldCenterDistance = self.distancer.getDistance(oldPos, self.center)
+      newCenterDistance = self.distancer.getDistance(myPos, self.center)
     
       features['closerToCenter'] = 0.01 if newCenterDistance < oldCenterDistance else 0
 
     return features
   
   def negativeRewards(self, state: GameState, action: str, nextState: GameState) -> float:
+    gotOffDefense = -5 if nextState.getAgentState(self.index).isPacman and not state.getAgentState(self.index).isPacman else 0
+    
+    negativeReward = gotOffDefense
+    if self.debug and self.red: 
+      print("Negative Reward: %s" % negativeReward)
+      if gotOffDefense > 0: print("\n   gotOffDefense: %s" % gotOffDefense)
+    
+    return negativeReward
+  
+  def deathRewards(self, state: GameState, action: str, nextState: GameState) -> float:
     isDead = 0
     oldPos = state.getAgentPosition(self.index)
     newPos = nextState.getAgentPosition(self.index)
     
     isDead = -5 if (newPos == self.spawnLocation and self.movesTaken > 20) or (oldPos == self.spawnLocation and self.movesTaken > 20) else 0
-    
-    gotOffDefense = -5 if nextState.getAgentState(self.index).isPacman and not state.getAgentState(self.index).isPacman else 0
-    
-    negativeReward = isDead + gotOffDefense
-    if self.debug and self.red: 
-      print("Negative Reward: %s" % negativeReward)
-      if isDead > 0: print("\n   isDead: %s" % isDead)
-      if gotOffDefense > 0: print("\n   gotOffDefense: %s" % gotOffDefense)
-    
-    return negativeReward
+      
+    if self.debug and self.red and isDead < 0: print("Dead Reward: %s" % isDead)
+    return isDead
   
   def positiveRewards(self, state: GameState, action: str, nextState: GameState) -> float:
-    closerToGhost = 0
+    closerToPacman = 0
     
     oldPos = state.getAgentPosition(self.index)
     newPos = nextState.getAgentPosition(self.index)
-    
-    if nextState.getAgentPosition(self.index) == state.getAgentPosition(self.enemyIndices[0]) or state.getAgentPosition(self.index) == nextState.getAgentPosition(self.enemyIndices[1]):
-      eatGhost = 5
-    else:
-      eatGhost = 0
     
     enemyLocs = {}
     opponents = self.getOpponents(nextState)
@@ -1394,9 +1449,9 @@ class SecondAgent(FirstAgent):
     
     if highestProb > 0 and nextState.getAgentState(self.index).isPacman:
       if mostProbableDistance <= 1:
-        closerToGhost = 0.05
+        closerToPacman = 0.05
       else:
-        closerToGhost = distanceIncreasePercent * 0.05 * (-1/3.5 * math.log(mostProbableDistance, 3) +1)        
+        closerToPacman = distanceIncreasePercent * 0.05 * (-1/3.5 * math.log(mostProbableDistance, 3) +1)        
     
     center = (15, 7) if self.red else (16, 7)
     oldCenterDistance = self.distancer.getDistance(oldPos, center)
@@ -1404,26 +1459,25 @@ class SecondAgent(FirstAgent):
     
     closerToCenter = 0.001 if newCenterDistance < oldCenterDistance else 0
     
-    positiveReward = closerToGhost + eatGhost + closerToCenter
+    positiveReward = closerToPacman + closerToCenter
     if self.debug and self.red: 
       print("Positive Reward: %s" % positiveReward)
-      if closerToGhost > 0: print("\n   closerToGhost: %s" % closerToGhost)
-      if eatGhost > 0: print("\n   eatGhost: %s" % eatGhost)
+      if closerToPacman > 0: print("\n   closerToPacman: %s" % closerToPacman)
       if closerToCenter > 0: print("\n   closerToCenter: %s" % closerToCenter)
     return positiveReward - self.livingReward if positiveReward - self.livingReward > 0 else 0
-  
-  def gotOffDefenseReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return -5
-  def diedReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return -10
-  def closerToPacmanReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return 
-  def closerToCenterReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return 
-  def ateGhostReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return 10
-  def stopReward(self, state: GameState, action : str, nextState: GameState) -> float:
-    return -1
+
+  def getHungerReward(self, state: GameState, action: str, nextState: GameState) -> float:
+    if nextState.getAgentPosition(self.index) == state.getAgentPosition(self.enemyIndices[0]) or state.getAgentPosition(self.index) == nextState.getAgentPosition(self.enemyIndices[1]):
+      eatGhost = 5
+    else:
+      eatGhost = 0
+    
+    hungerReward = eatGhost
+    if self.debug and self.red:
+      print("Hunger Reward: %s" % hungerReward)
+      if eatGhost > 0: print("\n   eatGhost: %s" % eatGhost)
+      
+    return hungerReward
 
 #Helper Classes
 class ParticleFilter():
@@ -1718,4 +1772,8 @@ class ParticleFilter():
 class HeapNode:
   prob: float
   loc: Any=field(compare=False)
-  
+
+@dataclass(order=True)
+class FoodHeapNode:
+  x: float
+  loc: Any=field(compare=False)

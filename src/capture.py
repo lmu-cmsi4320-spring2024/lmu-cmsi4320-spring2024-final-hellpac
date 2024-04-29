@@ -955,6 +955,7 @@ def readCommand(argv):
     args['numTraining'] = options.numTraining
     args['record'] = options.record
     args['catchExceptions'] = options.catchExceptions
+    
     return args
 
 

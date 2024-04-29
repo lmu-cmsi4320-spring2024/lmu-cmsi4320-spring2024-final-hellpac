@@ -9,11 +9,11 @@ import time
 import math
 
 
-WEIGHT_PATH = 'zDupeWeights_MY_TEAM.json'
-INITALTEAMWEIGHTS =  {"FirstAgentDupe": util.Counter(), "SecondAgentDupe": util.Counter()}
+WEIGHT_PATH = 'zOffensiveWeights_MY_TEAM.json'
+INITALTEAMWEIGHTS =  {"MainOffensiveAgent": util.Counter(), "SecondaryOffensiveAgent": util.Counter()}
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'FirstAgentDupe', second = 'SecondAgentDupe'):
+               first = 'MainOffensiveAgent', second = 'SecondaryOffensiveAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -36,12 +36,15 @@ def createTeam(firstIndex, secondIndex, isRed,
   particleFilter2 = ParticleFilter(isRed, enemyIndex[1])
   return [eval(first)(firstIndex, particleFilter1, particleFilter2, True), eval(second)(secondIndex, particleFilter1, particleFilter2, False)]
 
-class FirstAgentDupe(FirstAgent):
+class MainOffensiveAgent(FirstAgent):
   def getOrSetDebug(self) -> str:
     self.debug = False
     self.showNoise = False
     self.pelletNeed = 1
-    return "FirstAgentDupe"
+    return "MainOffensiveAgent"
+  
+  def registerCustomValues(self) -> None:
+    self.foodView = [0, 1, 2, 3, 4, 5]
   
   def loadWeights(self) -> None:
     agentStr = self.getOrSetDebug()
@@ -71,37 +74,12 @@ class FirstAgentDupe(FirstAgent):
     with open(WEIGHT_PATH, "w") as jsonFile:
       json.dump(teamWeights, jsonFile)
 
-class SecondAgentDupe(SecondAgent):
+class SecondaryOffensiveAgent(MainOffensiveAgent):
   def getOrSetDebug(self) -> str:
     self.debug = False
     self.showNoise = False
     self.pelletNeed = 1
-    return "SecondAgentDupe"
+    return "SecondaryOffensiveAgent"
   
-  def loadWeights(self) -> None:
-    agentStr = self.getOrSetDebug()
-    if os.path.isfile(WEIGHT_PATH):
-      with open(WEIGHT_PATH, "r") as jsonFile:
-        teamWeights = json.load(jsonFile)
-      if agentStr not in teamWeights.keys():
-        print("Initalized Team Weights without %s :(" % agentStr)
-        teamWeights[agentStr] = self.weights
-        with open(WEIGHT_PATH, "w") as jsonFile:
-          json.dump(teamWeights, jsonFile)
-      else:
-        self.weights = util.Counter(teamWeights[agentStr])
-    elif not os.path.isfile(WEIGHT_PATH):
-      print("Creating new weights from INITALTEAMWEIGHTS")
-      newTeamWeights = open(WEIGHT_PATH, "a+")
-      newTeamWeights.write(json.dumps(INITALTEAMWEIGHTS))
-      newTeamWeights.close()
-    
-  def updateWeights(self) -> None:
-    agentStr = self.getOrSetDebug()
-    with open(WEIGHT_PATH, "r") as jsonFile:
-      teamWeights = json.load(jsonFile)
-  
-    teamWeights[agentStr] = self.weights
-  
-    with open(WEIGHT_PATH, "w") as jsonFile:
-      json.dump(teamWeights, jsonFile)
+  def registerCustomValues(self) -> None:
+    self.foodView = [11, 12, 13, 14]
