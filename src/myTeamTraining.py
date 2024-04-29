@@ -12,7 +12,7 @@ if __name__ == '__main__':
     #First Training Session
     start = time.time()
     
-    NUMBER_OF_GAMES = 50
+    NUMBER_OF_GAMES = 25
     myAgents = capture.loadAgents(True, 'myTeam', False, '')
     enemyAgents = capture.loadAgents(False, 'myTeamDummy', False, '')
     
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     games = capture.runGames(**optionsArgs)
     
     #Second Training Session
-    NUMBER_OF_GAMES = 50
+    NUMBER_OF_GAMES = 100
     enemyAgents = capture.loadAgents(False, 'baselineTeam', False, '')
     
     agents = [myAgents[0], enemyAgents[0], myAgents[1], enemyAgents[1]]
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     
     
     #Sixth Training Session
-    NUMBER_OF_GAMES = 100
+    NUMBER_OF_GAMES = 75
     enemyAgents = capture.loadAgents(False, 'standoffTeam', False, '')
     
     agents = [myAgents[0], enemyAgents[0], myAgents[1], enemyAgents[1]]

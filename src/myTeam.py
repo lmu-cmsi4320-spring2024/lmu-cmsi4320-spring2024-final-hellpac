@@ -1177,7 +1177,7 @@ class FirstAgent(CaptureAgent):
           highestProb = locProbTuple[1]
           mostProbableDistance = self.distancer.getDistance(newPos, locProbTuple[0])
     
-    if highestProb > 0 and nextState.getAgentState(self.index).isPacman:
+    if highestProb > 0:
       if mostProbableDistance <= 1:
         closerToGhost = -1
       else:
@@ -1282,7 +1282,7 @@ class FirstAgent(CaptureAgent):
     
     oldFoodList = self.getFood(state).asList()
     
-    pelletReward = 1 if newPos in oldFoodList else 0
+    pelletReward = 2 if newPos in oldFoodList else 0
     
     oldCapsulesList = self.getCapsules(state)
     
