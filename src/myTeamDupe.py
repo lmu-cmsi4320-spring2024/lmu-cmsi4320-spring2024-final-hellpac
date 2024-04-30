@@ -43,6 +43,9 @@ class FirstAgentDupe(FirstAgent):
     self.pelletNeed = 1
     return "FirstAgentDupe"
   
+  def registerCustomValues(self) -> None:
+    self.isTraining = False
+  
   def loadWeights(self) -> None:
     agentStr = self.getOrSetDebug()
     if os.path.isfile(WEIGHT_PATH):
@@ -77,6 +80,9 @@ class SecondAgentDupe(SecondAgent):
     self.showNoise = False
     self.pelletNeed = 1
     return "SecondAgentDupe"
+  
+  def registerCustomValues(self) -> None:
+    self.isTraining = False
   
   def loadWeights(self) -> None:
     agentStr = self.getOrSetDebug()

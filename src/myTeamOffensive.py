@@ -44,7 +44,7 @@ class MainOffensiveAgent(FirstAgent):
     return "MainOffensiveAgent"
   
   def registerCustomValues(self) -> None:
-    self.foodView = [0, 1, 2, 3, 4, 5]
+    self.foodView = [1, 2, 3, 4]
   
   def loadWeights(self) -> None:
     agentStr = self.getOrSetDebug()

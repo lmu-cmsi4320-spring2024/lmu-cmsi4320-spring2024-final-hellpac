@@ -9,27 +9,9 @@ if __name__ == '__main__':
     """
     Training Loop For Professional Agents
     """
-    #First Training Session
     start = time.time()
-    
-    NUMBER_OF_GAMES = 50
     myAgents = capture.loadAgents(True, 'myTeamOffensive', False, '')
-    enemyAgents = capture.loadAgents(False, 'myTeamDummy', False, '')
     
-    agents = [myAgents[0], enemyAgents[0], myAgents[1], enemyAgents[1]]
-    
-    layouts = []
-    for i in range(NUMBER_OF_GAMES):
-        l = layout.getLayout('defaultCapture')
-
-        layouts.append(l)
-    
-    optionsArgs = {'display': textDisplay.NullGraphics(), 'redTeamName': 'ALLIED FORCES', 'blueTeamName': 'ENEMIES', 'agents': agents, 'layouts': layouts, 'length': 1200, 'numGames': NUMBER_OF_GAMES, 'numTraining': 0, 'record': False, 'catchExceptions': False}
-    games = capture.runGames(**optionsArgs)
-    
-    
-    
-    #Second Training Session
     NUMBER_OF_GAMES = 150
     enemyAgents = capture.loadAgents(False, 'baselineTeam', False, '')
     
@@ -45,7 +27,6 @@ if __name__ == '__main__':
     games = capture.runGames(**optionsArgs)
     
     
-    #Third Training Session
     NUMBER_OF_GAMES = 150
     enemyAgents = capture.loadAgents(False, 'betterBaselineTeam', False, '')
     
@@ -61,7 +42,6 @@ if __name__ == '__main__':
     games = capture.runGames(**optionsArgs)
     
     
-    #Forth Training Session
     NUMBER_OF_GAMES = 150
     enemyAgents = capture.loadAgents(False, 'standoffTeam', False, '')
     
