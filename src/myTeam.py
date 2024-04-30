@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from util import nearestPoint
 from typing import Any
 
-TRAINING = True
+TRAINING = False
 
 WEIGHT_PATH = 'zweights_MY_TEAM.json'
 
@@ -36,7 +36,7 @@ INITALREGULARGRAVEYARD = {"FirstAgent": util.Counter(dict[str: int]()), "SecondA
 
 MOVES = ["North", "South", "East", "West", "Stop"]
 
-STARINGEPSILON = 0.75
+STARINGEPSILON = 0
 
 class CaptureAgent(Agent):
     """
@@ -346,7 +346,7 @@ class FirstAgent(CaptureAgent):
 
     self.deadEnds = [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1,6), (1, 7), (1, 8), (1, 9), (1, 10), (1,11), (1,12), (1,13), (1,14), (2,14), (3,14), (3,13),(3, 12), (3,11), (3,10), (3, 8), (3, 6), (3, 5), (3,4), (3,3), (3,2), (3,1), (5,14), (6,14), (5,12), (5,1), (6,9), (7,9), (7,8), (7,3), (8,14), (8,11), (8,12), (8,9), (8,3), (9,11), (9,5), (10,14), (10,11), (10,9), (10,7), (10,3), (11, 9), (14,9), (17,6), (20,6), (21, 12), (21,8), (21,6), (21,4), (21,1), (22, 10), (22, 4), (23, 12), (23, 6), (23, 4), (23, 1), (23, 3), (24, 12), (24, 7), (24, 6), (25, 1), (25, 6), (26, 14), (26, 3), (26, 1), (28, 13), (28, 14), (28, 12), (28,11), (28,10), (28,9), (28,7), (28, 5), (28, 4), (28, 3), (28, 2), (28, 1),  (29, 1), (30, 1), (30, 2), (30,3), (30, 4), (30, 5), (30, 6), (30, 7), (30, 8), (30, 9), (30, 10), (30, 11), (30, 12), (30,13), (30,14) ]
     
-    self.center = (14, 7) if self.red else (17, 7)
+    self.center = (15, 7) if self.red else (16, 7)
     self.foodView = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     
     self.averageEvalTime = []
